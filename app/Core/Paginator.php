@@ -1,6 +1,6 @@
 <?php
 
-namespace Core;
+namespace Kanboard\Core;
 
 use Pimple\Container;
 use PicoDb\Table;
@@ -313,7 +313,7 @@ class Paginator
             $this->page = 1;
         }
 
-        $this->offset = ($this->page - 1) * $this->limit;
+        $this->offset = (int) (($this->page - 1) * $this->limit);
 
         return $this;
     }
@@ -349,14 +349,13 @@ class Paginator
         $html = '<span class="pagination-previous">';
 
         if ($this->offset > 0) {
-            $html .= $this->container['helper']->a(
+            $html .= $this->container['helper']->url->link(
                 '&larr; '.t('Previous'),
                 $this->controller,
                 $this->action,
                 $this->getUrlParams($this->page - 1, $this->order, $this->direction)
             );
-        }
-        else {
+        } else {
             $html .= '&larr; '.t('Previous');
         }
 
@@ -376,14 +375,13 @@ class Paginator
         $html = '<span class="pagination-next">';
 
         if (($this->total - $this->offset) > $this->limit) {
-            $html .= $this->container['helper']->a(
+            $html .= $this->container['helper']->url->link(
                 t('Next').' &rarr;',
                 $this->controller,
                 $this->action,
                 $this->getUrlParams($this->page + 1, $this->order, $this->direction)
             );
-        }
-        else {
+        } else {
             $html .= t('Next').' &rarr;';
         }
 
@@ -451,7 +449,7 @@ class Paginator
             $direction = $this->direction === 'DESC' ? 'ASC' : 'DESC';
         }
 
-        return $prefix.$this->container['helper']->a(
+        return $prefix.$this->container['helper']->url->link(
             $label,
             $this->controller,
             $this->action,

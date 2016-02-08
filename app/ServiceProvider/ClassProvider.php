@@ -1,50 +1,67 @@
 <?php
 
-namespace ServiceProvider;
+namespace Kanboard\ServiceProvider;
 
-use Core\Paginator;
-use Model\Config;
-use Model\Project;
-use Model\Webhook;
 use Pimple\Container;
 use Pimple\ServiceProviderInterface;
+use Kanboard\Core\Mail\Client as EmailClient;
+use Kanboard\Core\ObjectStorage\FileStorage;
+use Kanboard\Core\Paginator;
+use Kanboard\Core\Http\OAuth2;
+use Kanboard\Core\Tool;
+use Kanboard\Core\Http\Client as HttpClient;
 
 class ClassProvider implements ServiceProviderInterface
 {
     private $classes = array(
+        'Analytic' => array(
+            'TaskDistributionAnalytic',
+            'UserDistributionAnalytic',
+            'EstimatedTimeComparisonAnalytic',
+            'AverageLeadCycleTimeAnalytic',
+            'AverageTimeSpentColumnAnalytic',
+        ),
         'Model' => array(
-            'Acl',
             'Action',
-            'Authentication',
+            'ActionParameter',
             'Board',
-            'Budget',
             'Category',
             'Color',
             'Comment',
             'Config',
             'Currency',
-            'DateParser',
+            'CustomFilter',
             'File',
-            'HourlyRate',
+            'Group',
+            'GroupMember',
             'LastLogin',
             'Link',
             'Notification',
+            'OverdueNotification',
+            'PasswordReset',
             'Project',
             'ProjectActivity',
-            'ProjectAnalytic',
             'ProjectDuplication',
-            'ProjectDailySummary',
-            'ProjectIntegration',
+            'ProjectDailyColumnStats',
+            'ProjectDailyStats',
             'ProjectPermission',
+            'ProjectNotification',
+            'ProjectMetadata',
+            'ProjectGroupRole',
+            'ProjectGroupRoleFilter',
+            'ProjectUserRole',
+            'ProjectUserRoleFilter',
+            'RememberMeSession',
             'Subtask',
             'SubtaskExport',
-            'SubtaskForecast',
             'SubtaskTimeTracking',
             'Swimlane',
             'Task',
+            'TaskAnalytic',
             'TaskCreation',
             'TaskDuplication',
             'TaskExport',
+            'TaskExternalLink',
             'TaskFinder',
             'TaskFilter',
             'TaskLink',
@@ -52,54 +69,112 @@ class ClassProvider implements ServiceProviderInterface
             'TaskPermission',
             'TaskPosition',
             'TaskStatus',
-            'TaskValidator',
-            'Timetable',
-            'TimetableDay',
-            'TimetableWeek',
-            'TimetableOff',
-            'TimetableExtra',
+            'TaskImport',
+            'TaskMetadata',
             'Transition',
             'User',
-            'UserSession',
-            'Webhook',
+            'UserImport',
+            'UserLocking',
+            'UserMention',
+            'UserNotification',
+            'UserNotificationFilter',
+            'UserUnreadNotification',
+            'UserMetadata',
+        ),
+        'Formatter' => array(
+            'TaskFilterGanttFormatter',
+            'TaskFilterAutoCompleteFormatter',
+            'TaskFilterCalendarFormatter',
+            'TaskFilterICalendarFormatter',
+            'ProjectGanttFormatter',
+            'UserFilterAutoCompleteFormatter',
+            'GroupAutoCompleteFormatter',
+        ),
+        'Validator' => array(
+            'ActionValidator',
+            'AuthValidator',
+            'CategoryValidator',
+            'ColumnValidator',
+            'CommentValidator',
+            'CurrencyValidator',
+            'CustomFilterValidator',
+            'ExternalLinkValidator',
+            'GroupValidator',
+            'LinkValidator',
+            'PasswordResetValidator',
+            'ProjectValidator',
+            'SubtaskValidator',
+            'SwimlaneValidator',
+            'TaskValidator',
+            'TaskLinkValidator',
+            'UserValidator',
         ),
         'Core' => array(
+            'DateParser',
             'Helper',
+            'Lexer',
             'Template',
-            'Session',
-            'MemoryCache',
-            'FileCache',
-            'Request',
-            'HttpClient',
         ),
-        'Integration' => array(
-            'GitlabWebhook',
-            'GithubWebhook',
-            'BitbucketWebhook',
-            'HipchatWebhook',
-            'MailgunWebhook',
-            'SendgridWebhook',
-            'SlackWebhook',
-            'PostmarkWebhook',
+        'Core\Event' => array(
+            'EventManager',
+        ),
+        'Core\Http' => array(
+            'Request',
+            'Response',
+            'RememberMeCookie',
+        ),
+        'Core\Cache' => array(
+            'MemoryCache',
+        ),
+        'Core\Plugin' => array(
+            'Hook',
+        ),
+        'Core\Security' => array(
+            'Token',
+            'Role',
+        ),
+        'Core\User' => array(
+            'GroupSync',
+            'UserSync',
+            'UserSession',
+            'UserProfile',
         )
     );
 
     public function register(Container $container)
     {
-        foreach ($this->classes as $namespace => $classes) {
-
-            foreach ($classes as $name) {
-
-                $class = '\\'.$namespace.'\\'.$name;
-
-                $container[lcfirst($name)] = function ($c) use ($class) {
-                    return new $class($c);
-                };
-            }
-        }
+        Tool::buildDIC($container, $this->classes);
 
         $container['paginator'] = $container->factory(function ($c) {
             return new Paginator($c);
         });
+
+        $container['oauth'] = $container->factory(function ($c) {
+            return new OAuth2($c);
+        });
+
+        $container['httpClient'] = function ($c) {
+            return new HttpClient($c);
+        };
+
+        $container['objectStorage'] = function () {
+            return new FileStorage(FILES_DIR);
+        };
+
+        $container['emailClient'] = function ($container) {
+            $mailer = new EmailClient($container);
+            $mailer->setTransport('smtp', '\Kanboard\Core\Mail\Transport\Smtp');
+            $mailer->setTransport('sendmail', '\Kanboard\Core\Mail\Transport\Sendmail');
+            $mailer->setTransport('mail', '\Kanboard\Core\Mail\Transport\Mail');
+            return $mailer;
+        };
+
+        $container['cspRules'] = array(
+            'default-src' => "'self'",
+            'style-src' => "'self' 'unsafe-inline'",
+            'img-src' => '* data:',
+        );
+
+        return $container;
     }
 }

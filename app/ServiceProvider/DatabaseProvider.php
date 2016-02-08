@@ -1,7 +1,9 @@
 <?php
 
-namespace ServiceProvider;
+namespace Kanboard\ServiceProvider;
 
+use LogicException;
+use RuntimeException;
 use Pimple\Container;
 use Pimple\ServiceProviderInterface;
 use PicoDb\Database;
@@ -12,12 +14,15 @@ class DatabaseProvider implements ServiceProviderInterface
     {
         $container['db'] = $this->getInstance();
         $container['db']->stopwatch = DEBUG;
-        $container['db']->log_queries = DEBUG;
+        $container['db']->logQueries = DEBUG;
+
+        return $container;
     }
 
     /**
      * Setup the database driver and execute schema migration
      *
+     * @access public
      * @return \PicoDb\Database
      */
     public function getInstance()
@@ -26,34 +31,31 @@ class DatabaseProvider implements ServiceProviderInterface
             case 'sqlite':
                 $db = $this->getSqliteInstance();
                 break;
-
             case 'mysql':
                 $db = $this->getMysqlInstance();
                 break;
-
             case 'postgres':
                 $db = $this->getPostgresInstance();
                 break;
-
             default:
-                die('Database driver not supported');
+                throw new LogicException('Database driver not supported');
         }
 
         if ($db->schema()->check(\Schema\VERSION)) {
             return $db;
-        }
-        else {
+        } else {
             $errors = $db->getLogMessages();
-            die('Unable to migrate database schema: <br/><br/><strong>'.(isset($errors[0]) ? $errors[0] : 'Unknown error').'</strong>');
+            throw new RuntimeException('Unable to migrate database schema: '.(isset($errors[0]) ? $errors[0] : 'Unknown error'));
         }
     }
 
     /**
      * Setup the Sqlite database driver
      *
+     * @access private
      * @return \PicoDb\Database
      */
-    function getSqliteInstance()
+    private function getSqliteInstance()
     {
         require_once __DIR__.'/../Schema/Sqlite.php';
 
@@ -66,9 +68,10 @@ class DatabaseProvider implements ServiceProviderInterface
     /**
      * Setup the Mysql database driver
      *
+     * @access private
      * @return \PicoDb\Database
      */
-    function getMysqlInstance()
+    private function getMysqlInstance()
     {
         require_once __DIR__.'/../Schema/Mysql.php';
 
@@ -86,9 +89,10 @@ class DatabaseProvider implements ServiceProviderInterface
     /**
      * Setup the Postgres database driver
      *
+     * @access private
      * @return \PicoDb\Database
      */
-    public function getPostgresInstance()
+    private function getPostgresInstance()
     {
         require_once __DIR__.'/../Schema/Postgres.php';
 

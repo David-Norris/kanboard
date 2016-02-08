@@ -1,8 +1,8 @@
 <?php
 
-namespace Action;
+namespace Kanboard\Action;
 
-use Model\Task;
+use Kanboard\Model\Task;
 
 /**
  * Move a task to another project
@@ -12,6 +12,17 @@ use Model\Task;
  */
 class TaskMoveAnotherProject extends Base
 {
+    /**
+     * Get automatic action description
+     *
+     * @access public
+     * @return string
+     */
+    public function getDescription()
+    {
+        return t('Move the task to another project');
+    }
+
     /**
      * Get the list of compatible events
      *

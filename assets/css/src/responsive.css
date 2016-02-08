@@ -1,10 +1,15 @@
-/* responsive design */
-@media only screen and (max-width: 1024px) {
-
-    li.hide-tablet,
-    .hide-tablet {
-        display: none;
+@media only screen and (max-width: 1080px) {
+    div.filter-dropdowns .filters {
+        margin-left: 0;
     }
+
+    div.filter-dropdowns {
+        display: block;
+        margin-top: 5px;
+    }
+}
+
+@media only screen and (max-width: 1024px) {
 
     body {
         font-size: 0.85em;
@@ -35,6 +40,10 @@
         margin-top: 10px;
         display: block;
     }
+
+    .page-header .form-input-large {
+        width: 300px;
+    }
 }
 
 @media only screen and (max-width: 1024px) and (orientation: landscape) {
@@ -53,6 +62,10 @@
     input[type="password"],
     input[type="text"] {
         height: 18px;
+    }
+
+    .page-header .form-input-large {
+        width: 300px;
     }
 }
 

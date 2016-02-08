@@ -1,6 +1,6 @@
 <?php
 
-namespace Controller;
+namespace Kanboard\Controller;
 
 /**
  * Category management
@@ -22,8 +22,8 @@ class Category extends Base
         $category = $this->category->getById($this->request->getIntegerParam('category_id'));
 
         if (empty($category)) {
-            $this->session->flashError(t('Category not found.'));
-            $this->response->redirect('?controller=category&action=index&project_id='.$project_id);
+            $this->flash->failure(t('Category not found.'));
+            $this->response->redirect($this->helper->url->to('category', 'index', array('project_id' => $project_id)));
         }
 
         return $category;
@@ -38,7 +38,7 @@ class Category extends Base
     {
         $project = $this->getProject();
 
-        $this->response->html($this->projectLayout('category/index', array(
+        $this->response->html($this->helper->layout->project('category/index', array(
             'categories' => $this->category->getList($project['id'], false),
             'values' => $values + array('project_id' => $project['id']),
             'errors' => $errors,
@@ -57,16 +57,14 @@ class Category extends Base
         $project = $this->getProject();
 
         $values = $this->request->getValues();
-        list($valid, $errors) = $this->category->validateCreation($values);
+        list($valid, $errors) = $this->categoryValidator->validateCreation($values);
 
         if ($valid) {
-
             if ($this->category->create($values)) {
-                $this->session->flash(t('Your category have been created successfully.'));
-                $this->response->redirect('?controller=category&action=index&project_id='.$project['id']);
-            }
-            else {
-                $this->session->flashError(t('Unable to create your category.'));
+                $this->flash->success(t('Your category have been created successfully.'));
+                $this->response->redirect($this->helper->url->to('category', 'index', array('project_id' => $project['id'])));
+            } else {
+                $this->flash->failure(t('Unable to create your category.'));
             }
         }
 
@@ -83,7 +81,7 @@ class Category extends Base
         $project = $this->getProject();
         $category = $this->getCategory($project['id']);
 
-        $this->response->html($this->projectLayout('category/edit', array(
+        $this->response->html($this->helper->layout->project('category/edit', array(
             'values' => empty($values) ? $category : $values,
             'errors' => $errors,
             'project' => $project,
@@ -101,16 +99,14 @@ class Category extends Base
         $project = $this->getProject();
 
         $values = $this->request->getValues();
-        list($valid, $errors) = $this->category->validateModification($values);
+        list($valid, $errors) = $this->categoryValidator->validateModification($values);
 
         if ($valid) {
-
             if ($this->category->update($values)) {
-                $this->session->flash(t('Your category have been updated successfully.'));
-                $this->response->redirect('?controller=category&action=index&project_id='.$project['id']);
-            }
-            else {
-                $this->session->flashError(t('Unable to update your category.'));
+                $this->flash->success(t('Your category have been updated successfully.'));
+                $this->response->redirect($this->helper->url->to('category', 'index', array('project_id' => $project['id'])));
+            } else {
+                $this->flash->failure(t('Unable to update your category.'));
             }
         }
 
@@ -127,7 +123,7 @@ class Category extends Base
         $project = $this->getProject();
         $category = $this->getCategory($project['id']);
 
-        $this->response->html($this->projectLayout('category/remove', array(
+        $this->response->html($this->helper->layout->project('category/remove', array(
             'project' => $project,
             'category' => $category,
             'title' => t('Remove a category')
@@ -146,11 +142,11 @@ class Category extends Base
         $category = $this->getCategory($project['id']);
 
         if ($this->category->remove($category['id'])) {
-            $this->session->flash(t('Category removed successfully.'));
+            $this->flash->success(t('Category removed successfully.'));
         } else {
-            $this->session->flashError(t('Unable to remove this category.'));
+            $this->flash->failure(t('Unable to remove this category.'));
         }
 
-        $this->response->redirect('?controller=category&action=index&project_id='.$project['id']);
+        $this->response->redirect($this->helper->url->to('category', 'index', array('project_id' => $project['id'])));
     }
 }

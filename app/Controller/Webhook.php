@@ -1,6 +1,6 @@
 <?php
 
-namespace Controller;
+namespace Kanboard\Controller;
 
 /**
  * Webhook controller
@@ -17,9 +17,7 @@ class Webhook extends Base
      */
     public function task()
     {
-        if ($this->config->get('webhook_token') !== $this->request->getStringParam('token')) {
-            $this->response->text('Not Authorized', 401);
-        }
+        $this->checkWebhookToken();
 
         $defaultProject = $this->project->getFirst();
 
@@ -33,113 +31,12 @@ class Webhook extends Base
             'category_id' => $this->request->getIntegerParam('category_id'),
         );
 
-        list($valid,) = $this->taskValidator->validateCreation($values);
+        list($valid, ) = $this->taskValidator->validateCreation($values);
 
         if ($valid && $this->taskCreation->create($values)) {
             $this->response->text('OK');
         }
 
         $this->response->text('FAILED');
-    }
-
-    /**
-     * Handle Github webhooks
-     *
-     * @access public
-     */
-    public function github()
-    {
-        if ($this->config->get('webhook_token') !== $this->request->getStringParam('token')) {
-            $this->response->text('Not Authorized', 401);
-        }
-
-        $this->githubWebhook->setProjectId($this->request->getIntegerParam('project_id'));
-
-        $result = $this->githubWebhook->parsePayload(
-            $this->request->getHeader('X-Github-Event'),
-            $this->request->getJson() ?: array()
-        );
-
-        echo $result ? 'PARSED' : 'IGNORED';
-    }
-
-    /**
-     * Handle Gitlab webhooks
-     *
-     * @access public
-     */
-    public function gitlab()
-    {
-        if ($this->config->get('webhook_token') !== $this->request->getStringParam('token')) {
-            $this->response->text('Not Authorized', 401);
-        }
-
-        $this->gitlabWebhook->setProjectId($this->request->getIntegerParam('project_id'));
-
-        $result = $this->gitlabWebhook->parsePayload(
-            $this->request->getJson() ?: array()
-        );
-
-        echo $result ? 'PARSED' : 'IGNORED';
-    }
-
-    /**
-     * Handle Bitbucket webhooks
-     *
-     * @access public
-     */
-    public function bitbucket()
-    {
-        if ($this->config->get('webhook_token') !== $this->request->getStringParam('token')) {
-            $this->response->text('Not Authorized', 401);
-        }
-
-        $this->bitbucketWebhook->setProjectId($this->request->getIntegerParam('project_id'));
-
-        $result = $this->bitbucketWebhook->parsePayload(json_decode(@$_POST['payload'], true));
-
-        echo $result ? 'PARSED' : 'IGNORED';
-    }
-
-    /**
-     * Handle Postmark webhooks
-     *
-     * @access public
-     */
-    public function postmark()
-    {
-        if ($this->config->get('webhook_token') !== $this->request->getStringParam('token')) {
-            $this->response->text('Not Authorized', 401);
-        }
-
-        echo $this->postmarkWebhook->parsePayload($this->request->getJson() ?: array()) ? 'PARSED' : 'IGNORED';
-    }
-
-    /**
-     * Handle Mailgun webhooks
-     *
-     * @access public
-     */
-    public function mailgun()
-    {
-        if ($this->config->get('webhook_token') !== $this->request->getStringParam('token')) {
-            $this->response->text('Not Authorized', 401);
-        }
-
-        echo $this->mailgunWebhook->parsePayload($_POST) ? 'PARSED' : 'IGNORED';
-    }
-
-    /**
-     * Handle Sendgrid webhooks
-     *
-     * @access public
-     */
-    public function sendgrid()
-    {
-        if ($this->config->get('webhook_token') !== $this->request->getStringParam('token')) {
-            $this->response->text('Not Authorized', 401);
-        }
-
-        echo $this->sendgridWebhook->parsePayload($_POST) ? 'PARSED' : 'IGNORED';
     }
 }

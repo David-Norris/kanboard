@@ -1,6 +1,6 @@
 <?php
 
-namespace Core;
+namespace Kanboard\Core;
 
 /**
  * Translator class
@@ -15,7 +15,7 @@ class Translator
      *
      * @var string
      */
-    const PATH = 'app/Locale/';
+    const PATH = 'app/Locale';
 
     /**
      * Locale
@@ -25,6 +25,31 @@ class Translator
      * @var array
      */
     private static $locales = array();
+
+    /**
+     * Instance
+     *
+     * @static
+     * @access private
+     * @var Translator
+     */
+    private static $instance = null;
+
+    /**
+     * Get instance
+     *
+     * @static
+     * @access public
+     * @return Translator
+     */
+    public static function getInstance()
+    {
+        if (self::$instance === null) {
+            self::$instance = new self;
+        }
+
+        return self::$instance;
+    }
 
     /**
      * Get a translation
@@ -122,32 +147,6 @@ class Translator
     }
 
     /**
-     * Get a formatted datetime
-     *
-     * $translator->datetime('%Y-%m-%d', time());
-     *
-     * @access public
-     * @param  string   $format      Format defined by the strftime function
-     * @param  integer  $timestamp   Unix timestamp
-     * @return string
-     */
-    public function datetime($format, $timestamp)
-    {
-        if (! $timestamp) {
-            return '';
-        }
-
-        $format = $this->get($format, $format);
-
-        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-            $format = str_replace('%e', '%d', $format);
-            $format = str_replace('%k', '%H', $format);
-        }
-
-        return strftime($format, (int) $timestamp);
-    }
-
-    /**
      * Get an identifier from the translations or return the default
      *
      * @access public
@@ -159,8 +158,7 @@ class Translator
     {
         if (isset(self::$locales[$identifier])) {
             return self::$locales[$identifier];
-        }
-        else {
+        } else {
             return $default;
         }
     }
@@ -171,18 +169,25 @@ class Translator
      * @static
      * @access public
      * @param  string   $language   Locale code: fr_FR
+     * @param  string   $path       Locale folder
      */
-    public static function load($language)
+    public static function load($language, $path = self::PATH)
     {
-        setlocale(LC_TIME, $language.'.UTF-8', $language);
-
-        $filename = self::PATH.$language.DIRECTORY_SEPARATOR.'translations.php';
+        $filename = $path.DIRECTORY_SEPARATOR.$language.DIRECTORY_SEPARATOR.'translations.php';
 
         if (file_exists($filename)) {
-            self::$locales = require $filename;
+            self::$locales = array_merge(self::$locales, require($filename));
         }
-        else {
-            self::$locales = array();
-        }
+    }
+
+    /**
+     * Clear locales stored in memory
+     *
+     * @static
+     * @access public
+     */
+    public static function unload()
+    {
+        self::$locales = array();
     }
 }

@@ -1,8 +1,6 @@
 <?php
 
-namespace Action;
-
-use Integration\GithubWebhook;
+namespace Kanboard\Action;
 
 /**
  * Assign a task to someone
@@ -13,6 +11,17 @@ use Integration\GithubWebhook;
 class TaskAssignUser extends Base
 {
     /**
+     * Get automatic action description
+     *
+     * @access public
+     * @return string
+     */
+    public function getDescription()
+    {
+        return t('Change the assignee based on an external username');
+    }
+
+    /**
      * Get the list of compatible events
      *
      * @access public
@@ -20,9 +29,7 @@ class TaskAssignUser extends Base
      */
     public function getCompatibleEvents()
     {
-        return array(
-            GithubWebhook::EVENT_ISSUE_ASSIGNEE_CHANGE,
-        );
+        return array();
     }
 
     /**
@@ -76,6 +83,6 @@ class TaskAssignUser extends Base
      */
     public function hasRequiredCondition(array $data)
     {
-        return true;
+        return $this->projectPermission->isAssignable($this->getProjectId(), $data['owner_id']);
     }
 }

@@ -1,6 +1,6 @@
 <?php
 
-namespace Console;
+namespace Kanboard\Console;
 
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
@@ -19,25 +19,7 @@ class TaskOverdueNotification extends Base
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $projects = array();
-        $tasks = $this->taskFinder->getOverdueTasks();
-
-        // Group tasks by project
-        foreach ($tasks as $task) {
-            $projects[$task['project_id']][] = $task;
-        }
-
-        // Send notifications for each project
-        foreach ($projects as $project_id => $project_tasks) {
-
-            $users = $this->notification->getUsersList($project_id);
-
-            $this->notification->sendEmails(
-                'task_due',
-                $users,
-                array('tasks' => $project_tasks, 'project' => $project_tasks[0]['project_name'])
-            );
-        }
+        $tasks = $this->overdueNotification->sendOverdueTaskNotifications();
 
         if ($input->getOption('show')) {
             $this->showTable($output, $tasks);

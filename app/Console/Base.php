@@ -1,6 +1,6 @@
 <?php
 
-namespace Console;
+namespace Kanboard\Console;
 
 use Pimple\Container;
 use Symfony\Component\Console\Command\Command;
@@ -11,16 +11,19 @@ use Symfony\Component\Console\Command\Command;
  * @package  console
  * @author   Frederic Guillot
  *
- * @property \Model\Notification           $notification
- * @property \Model\Project                $project
- * @property \Model\ProjectPermission      $projectPermission
- * @property \Model\ProjectAnalytic        $projectAnalytic
- * @property \Model\ProjectDailySummary    $projectDailySummary
- * @property \Model\SubtaskExport          $subtaskExport
- * @property \Model\Task                   $task
- * @property \Model\TaskExport             $taskExport
- * @property \Model\TaskFinder             $taskFinder
- * @property \Model\Transition             $transition
+ * @property \Kanboard\Model\Notification                               $notification
+ * @property \Kanboard\Model\Project                                    $project
+ * @property \Kanboard\Model\ProjectPermission                          $projectPermission
+ * @property \Kanboard\Model\ProjectAnalytic                            $projectAnalytic
+ * @property \Kanboard\Model\ProjectDailyColumnStats                    $projectDailyColumnStats
+ * @property \Kanboard\Model\ProjectDailyStats                          $projectDailyStats
+ * @property \Kanboard\Model\SubtaskExport                              $subtaskExport
+ * @property \Kanboard\Model\OverdueNotification                        $overdueNotification
+ * @property \Kanboard\Model\Task                                       $task
+ * @property \Kanboard\Model\TaskExport                                 $taskExport
+ * @property \Kanboard\Model\TaskFinder                                 $taskFinder
+ * @property \Kanboard\Model\Transition                                 $transition
+ * @property \Symfony\Component\EventDispatcher\EventDispatcher         $dispatcher
  */
 abstract class Base extends Command
 {

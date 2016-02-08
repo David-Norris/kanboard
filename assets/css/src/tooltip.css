@@ -8,7 +8,7 @@
 div.ui-tooltip {
     min-width: 200px;
     max-width: 600px;
-    font-size: 0.95em;
+    font-size: 0.85em;
 }
 
 .tooltip-arrow {
@@ -68,11 +68,30 @@ div.ui-tooltip {
     margin-bottom: 0px;
 }
 
-.tooltip-tasklinks li {
-    list-style-type: none;
-}
-
-.column-tooltip {
+.tooltip .fa-info-circle {
 	color: #999;
 	font-size: 0.95em;
+}
+
+.ui-tooltip ul {
+    margin-left: 20px;
+}
+
+.ui-tooltip dl {
+    margin: -5px 0 0 0;
+    padding: 0;
+}
+
+.ui-tooltip dt {
+    margin-top: 5px;
+}
+
+.ui-tooltip dd {
+   margin-left: 0;
+}
+
+.ui-tooltip .progress {
+    display: inline-block;
+    min-width: 3em;
+    text-align: right;
 }

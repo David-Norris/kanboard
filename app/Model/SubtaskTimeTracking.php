@@ -1,6 +1,6 @@
 <?php
 
-namespace Model;
+namespace Kanboard\Model;
 
 use DateTime;
 
@@ -18,6 +18,27 @@ class SubtaskTimeTracking extends Base
      * @var string
      */
     const TABLE = 'subtask_time_tracking';
+
+    /**
+     * Get query to check if a timer is started for the given user and subtask
+     *
+     * @access public
+     * @param  integer    $user_id   User id
+     * @return string
+     */
+    public function getTimerQuery($user_id)
+    {
+        return sprintf(
+            "SELECT %s FROM %s WHERE %s='%d' AND %s='0' AND %s=%s LIMIT 1",
+            $this->db->escapeIdentifier('start'),
+            $this->db->escapeIdentifier(self::TABLE),
+            $this->db->escapeIdentifier('user_id'),
+            $user_id,
+            $this->db->escapeIdentifier('end'),
+            $this->db->escapeIdentifier('subtask_id'),
+            Subtask::TABLE.'.id'
+        );
+    }
 
     /**
      * Get query for user timesheet (pagination)
@@ -105,7 +126,8 @@ class SubtaskTimeTracking extends Base
                     ->join(Subtask::TABLE, 'id', 'subtask_id')
                     ->join(Task::TABLE, 'id', 'task_id', Subtask::TABLE)
                     ->join(User::TABLE, 'id', 'user_id', self::TABLE)
-                    ->eq(Task::TABLE.'.project_id', $project_id);
+                    ->eq(Task::TABLE.'.project_id', $project_id)
+                    ->asc(self::TABLE.'.id');
     }
 
     /**
@@ -128,19 +150,32 @@ class SubtaskTimeTracking extends Base
      *
      * @access public
      * @param  integer   $user_id
-     * @param  integer   $start
-     * @param  integer   $end
+     * @param  string    $start      ISO-8601 format
+     * @param  string    $end
      * @return array
      */
     public function getUserCalendarEvents($user_id, $start, $end)
     {
-        $result = $this->getUserQuery($user_id)
-                       ->addCondition($this->getCalendarCondition($start, $end))
-                       ->findAll();
+        $hook = 'model:subtask-time-tracking:calendar:events';
+        $events = $this->getUserQuery($user_id)
+            ->addCondition($this->getCalendarCondition(
+                $this->dateParser->getTimestampFromIsoFormat($start),
+                $this->dateParser->getTimestampFromIsoFormat($end),
+                'start',
+                'end'
+            ))
+            ->findAll();
 
-        $result = $this->timetable->calculateEventsIntersect($user_id, $result, $start, $end);
+        if ($this->hook->exists($hook)) {
+            $events = $this->hook->first($hook, array(
+                'user_id' => $user_id,
+                'events' => $events,
+                'start' => $start,
+                'end' => $end,
+            ));
+        }
 
-        return $this->toCalendarEvents($result);
+        return $this->toCalendarEvents($events);
     }
 
     /**
@@ -154,35 +189,17 @@ class SubtaskTimeTracking extends Base
      */
     public function getProjectCalendarEvents($project_id, $start, $end)
     {
-        $result = $this->getProjectQuery($project_id)
-                       ->addCondition($this->getCalendarCondition($start, $end))
-                       ->findAll();
+        $result = $this
+            ->getProjectQuery($project_id)
+            ->addCondition($this->getCalendarCondition(
+                $this->dateParser->getTimestampFromIsoFormat($start),
+                $this->dateParser->getTimestampFromIsoFormat($end),
+                'start',
+                'end'
+            ))
+            ->findAll();
 
         return $this->toCalendarEvents($result);
-    }
-
-    /**
-     * Get time slots that should be displayed in the calendar time range
-     *
-     * @access private
-     * @param  string   $start   ISO8601 start date
-     * @param  string   $end     ISO8601 end date
-     * @return string
-     */
-    private function getCalendarCondition($start, $end)
-    {
-        $start_time = $this->dateParser->getTimestampFromIsoFormat($start);
-        $end_time = $this->dateParser->getTimestampFromIsoFormat($end);
-        $start_column = $this->db->escapeIdentifier('start');
-        $end_column = $this->db->escapeIdentifier('end');
-
-        $conditions = array(
-            "($start_column >= '$start_time' AND $start_column <= '$end_time')",
-            "($start_column <= '$start_time' AND $end_column >= '$start_time')",
-            "($start_column <= '$start_time' AND $end_column = '0')",
-        );
-
-        return '('.implode(' OR ', $conditions).')';
     }
 
     /**
@@ -197,7 +214,6 @@ class SubtaskTimeTracking extends Base
         $events = array();
 
         foreach ($rows as $row) {
-
             $user = isset($row['username']) ? ' ('.($row['user_fullname'] ?: $row['username']).')' : '';
 
             $events[] = array(
@@ -209,12 +225,25 @@ class SubtaskTimeTracking extends Base
                 'backgroundColor' => $this->color->getBackgroundColor($row['color_id']),
                 'borderColor' => $this->color->getBorderColor($row['color_id']),
                 'textColor' => 'black',
-                'url' => $this->helper->url('task', 'show', array('task_id' => $row['task_id'], 'project_id' => $row['project_id'])),
+                'url' => $this->helper->url->to('task', 'show', array('task_id' => $row['task_id'], 'project_id' => $row['project_id'])),
                 'editable' => false,
             );
         }
 
         return $events;
+    }
+
+    /**
+     * Return true if a timer is started for this use and subtask
+     *
+     * @access public
+     * @param  integer  $subtask_id
+     * @param  integer  $user_id
+     * @return boolean
+     */
+    public function hasTimer($subtask_id, $user_id)
+    {
+        return $this->db->table(self::TABLE)->eq('subtask_id', $subtask_id)->eq('user_id', $user_id)->eq('end', 0)->exists();
     }
 
     /**
@@ -227,9 +256,11 @@ class SubtaskTimeTracking extends Base
      */
     public function logStartTime($subtask_id, $user_id)
     {
-        return $this->db
-                    ->table(self::TABLE)
-                    ->insert(array('subtask_id' => $subtask_id, 'user_id' => $user_id, 'start' => time()));
+        return
+            ! $this->hasTimer($subtask_id, $user_id) &&
+            $this->db
+                ->table(self::TABLE)
+                ->insert(array('subtask_id' => $subtask_id, 'user_id' => $user_id, 'start' => time(), 'end' => 0));
     }
 
     /**
@@ -269,22 +300,31 @@ class SubtaskTimeTracking extends Base
      */
     public function getTimeSpent($subtask_id, $user_id)
     {
+        $hook = 'model:subtask-time-tracking:calculate:time-spent';
         $start_time = $this->db
-                           ->table(self::TABLE)
-                           ->eq('subtask_id', $subtask_id)
-                           ->eq('user_id', $user_id)
-                           ->eq('end', 0)
-                           ->findOneColumn('start');
+            ->table(self::TABLE)
+            ->eq('subtask_id', $subtask_id)
+            ->eq('user_id', $user_id)
+            ->eq('end', 0)
+            ->findOneColumn('start');
 
-        if ($start_time) {
-
-            $start = new DateTime;
-            $start->setTimestamp($start_time);
-
-            return $this->timetable->calculateEffectiveDuration($user_id, $start, new DateTime);
+        if (empty($start_time)) {
+            return 0;
         }
 
-        return 0;
+        $end = new DateTime;
+        $start = new DateTime;
+        $start->setTimestamp($start_time);
+
+        if ($this->hook->exists($hook)) {
+            return $this->hook->first($hook, array(
+                'user_id' => $user_id,
+                'start' => $start,
+                'end' => $end,
+            ));
+        }
+
+        return $this->dateParser->getHours($start, $end);
     }
 
     /**
@@ -304,7 +344,7 @@ class SubtaskTimeTracking extends Base
             'id' => $subtask['id'],
             'time_spent' => $subtask['time_spent'] + $time_spent,
             'task_id' => $subtask['task_id'],
-       ));
+        ), false);
     }
 
     /**
@@ -316,19 +356,12 @@ class SubtaskTimeTracking extends Base
      */
     public function updateTaskTimeTracking($task_id)
     {
-        $result = $this->calculateSubtaskTime($task_id);
-
-        if (empty($result['total_spent']) && empty($result['total_estimated'])) {
-            return true;
-        }
+        $values = $this->calculateSubtaskTime($task_id);
 
         return $this->db
                     ->table(Task::TABLE)
                     ->eq('id', $task_id)
-                    ->update(array(
-                        'time_spent' => $result['total_spent'],
-                        'time_estimated' => $result['total_estimated'],
-                    ));
+                    ->update($values);
     }
 
     /**
@@ -344,8 +377,8 @@ class SubtaskTimeTracking extends Base
                     ->table(Subtask::TABLE)
                     ->eq('task_id', $task_id)
                     ->columns(
-                        'SUM(time_spent) AS total_spent',
-                        'SUM(time_estimated) AS total_estimated'
+                        'SUM(time_spent) AS time_spent',
+                        'SUM(time_estimated) AS time_estimated'
                     )
                     ->findOne();
     }

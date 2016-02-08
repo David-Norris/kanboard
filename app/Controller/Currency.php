@@ -1,6 +1,6 @@
 <?php
 
-namespace Controller;
+namespace Kanboard\Controller;
 
 /**
  * Currency controller
@@ -11,34 +11,18 @@ namespace Controller;
 class Currency extends Base
 {
     /**
-     * Common layout for config views
-     *
-     * @access private
-     * @param  string    $template   Template name
-     * @param  array     $params     Template parameters
-     * @return string
-     */
-    private function layout($template, array $params)
-    {
-        $params['board_selector'] = $this->projectPermission->getAllowedProjects($this->userSession->getId());
-        $params['config_content_for_layout'] = $this->template->render($template, $params);
-
-        return $this->template->layout('config/layout', $params);
-    }
-
-    /**
      * Display all currency rates and form
      *
      * @access public
      */
     public function index(array $values = array(), array $errors = array())
     {
-        $this->response->html($this->layout('currency/index', array(
+        $this->response->html($this->helper->layout->config('currency/index', array(
             'config_values' => array('application_currency' => $this->config->get('application_currency')),
             'values' => $values,
             'errors' => $errors,
             'rates' => $this->currency->getAll(),
-            'currencies' => $this->config->getCurrencies(),
+            'currencies' => $this->currency->getCurrencies(),
             'title' => t('Settings').' &gt; '.t('Currency rates'),
         )));
     }
@@ -51,16 +35,14 @@ class Currency extends Base
     public function create()
     {
         $values = $this->request->getValues();
-        list($valid, $errors) = $this->currency->validate($values);
+        list($valid, $errors) = $this->currencyValidator->validateCreation($values);
 
         if ($valid) {
-
             if ($this->currency->create($values['currency'], $values['rate'])) {
-                $this->session->flash(t('The currency rate have been added successfully.'));
-                $this->response->redirect($this->helper->url('currency', 'index'));
-            }
-            else {
-                $this->session->flashError(t('Unable to add this currency rate.'));
+                $this->flash->success(t('The currency rate have been added successfully.'));
+                $this->response->redirect($this->helper->url->to('currency', 'index'));
+            } else {
+                $this->flash->failure(t('Unable to add this currency rate.'));
             }
         }
 
@@ -78,12 +60,11 @@ class Currency extends Base
 
         if ($this->config->save($values)) {
             $this->config->reload();
-            $this->session->flash(t('Settings saved successfully.'));
-        }
-        else {
-            $this->session->flashError(t('Unable to save your settings.'));
+            $this->flash->success(t('Settings saved successfully.'));
+        } else {
+            $this->flash->failure(t('Unable to save your settings.'));
         }
 
-        $this->response->redirect($this->helper->url('currency', 'index'));
+        $this->response->redirect($this->helper->url->to('currency', 'index'));
     }
 }

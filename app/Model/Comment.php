@@ -1,10 +1,8 @@
 <?php
 
-namespace Model;
+namespace Kanboard\Model;
 
-use Event\CommentEvent;
-use SimpleValidator\Validator;
-use SimpleValidator\Validators;
+use Kanboard\Event\CommentEvent;
 
 /**
  * Comment model
@@ -26,23 +24,25 @@ class Comment extends Base
      *
      * @var string
      */
-    const EVENT_UPDATE = 'comment.update';
-    const EVENT_CREATE = 'comment.create';
+    const EVENT_UPDATE       = 'comment.update';
+    const EVENT_CREATE       = 'comment.create';
+    const EVENT_USER_MENTION = 'comment.user.mention';
 
     /**
      * Get all comments for a given task
      *
      * @access public
      * @param  integer  $task_id  Task id
+     * @param  string   $sorting  ASC/DESC
      * @return array
      */
-    public function getAll($task_id)
+    public function getAll($task_id, $sorting = 'ASC')
     {
         return $this->db
             ->table(self::TABLE)
             ->columns(
                 self::TABLE.'.id',
-                self::TABLE.'.date',
+                self::TABLE.'.date_creation',
                 self::TABLE.'.task_id',
                 self::TABLE.'.user_id',
                 self::TABLE.'.comment',
@@ -51,7 +51,7 @@ class Comment extends Base
                 User::TABLE.'.email'
             )
             ->join(User::TABLE, 'id', 'user_id')
-            ->orderBy(self::TABLE.'.date', 'ASC')
+            ->orderBy(self::TABLE.'.date_creation', $sorting)
             ->eq(self::TABLE.'.task_id', $task_id)
             ->findAll();
     }
@@ -71,8 +71,9 @@ class Comment extends Base
                 self::TABLE.'.id',
                 self::TABLE.'.task_id',
                 self::TABLE.'.user_id',
-                self::TABLE.'.date',
+                self::TABLE.'.date_creation',
                 self::TABLE.'.comment',
+                self::TABLE.'.reference',
                 User::TABLE.'.username',
                 User::TABLE.'.name'
             )
@@ -105,11 +106,13 @@ class Comment extends Base
      */
     public function create(array $values)
     {
-        $values['date'] = time();
+        $values['date_creation'] = time();
         $comment_id = $this->persist(self::TABLE, $values);
 
         if ($comment_id) {
-            $this->container['dispatcher']->dispatch(self::EVENT_CREATE, new CommentEvent(array('id' => $comment_id) + $values));
+            $event = new CommentEvent(array('id' => $comment_id) + $values);
+            $this->dispatcher->dispatch(self::EVENT_CREATE, $event);
+            $this->userMention->fireEvents($values['comment'], self::EVENT_USER_MENTION, $event);
         }
 
         return $comment_id;
@@ -129,7 +132,9 @@ class Comment extends Base
                     ->eq('id', $values['id'])
                     ->update(array('comment' => $values['comment']));
 
-        $this->container['dispatcher']->dispatch(self::EVENT_UPDATE, new CommentEvent($values));
+        if ($result) {
+            $this->container['dispatcher']->dispatch(self::EVENT_UPDATE, new CommentEvent($values));
+        }
 
         return $result;
     }
@@ -144,64 +149,5 @@ class Comment extends Base
     public function remove($comment_id)
     {
         return $this->db->table(self::TABLE)->eq('id', $comment_id)->remove();
-    }
-
-    /**
-     * Validate comment creation
-     *
-     * @access public
-     * @param  array   $values           Required parameters to save an action
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validateCreation(array $values)
-    {
-        $rules = array(
-            new Validators\Required('user_id', t('This value is required')),
-            new Validators\Required('task_id', t('This value is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonValidationRules()));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
-    }
-
-    /**
-     * Validate comment modification
-     *
-     * @access public
-     * @param  array   $values           Required parameters to save an action
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validateModification(array $values)
-    {
-        $rules = array(
-            new Validators\Required('id', t('This value is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonValidationRules()));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
-    }
-
-    /**
-     * Common validation rules
-     *
-     * @access private
-     * @return array
-     */
-    private function commonValidationRules()
-    {
-        return array(
-            new Validators\Integer('id', t('This value must be an integer')),
-            new Validators\Integer('task_id', t('This value must be an integer')),
-            new Validators\Integer('user_id', t('This value must be an integer')),
-            new Validators\Required('comment', t('Comment is required'))
-        );
     }
 }

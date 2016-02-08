@@ -1,9 +1,8 @@
 <?php
 
-namespace Controller;
+namespace Kanboard\Controller;
 
-use Model\Subtask as SubtaskModel;
-use Model\Task as TaskModel;
+use Kanboard\Model\Subtask as SubtaskModel;
 
 /**
  * Application controller
@@ -13,6 +12,60 @@ use Model\Task as TaskModel;
  */
 class App extends Base
 {
+    /**
+     * Get project pagination
+     *
+     * @access private
+     * @param  integer  $user_id
+     * @param  string   $action
+     * @param  integer  $max
+     */
+    private function getProjectPaginator($user_id, $action, $max)
+    {
+        return $this->paginator
+            ->setUrl('app', $action, array('pagination' => 'projects', 'user_id' => $user_id))
+            ->setMax($max)
+            ->setOrder('name')
+            ->setQuery($this->project->getQueryColumnStats($this->projectPermission->getActiveProjectIds($user_id)))
+            ->calculateOnlyIf($this->request->getStringParam('pagination') === 'projects');
+    }
+
+    /**
+     * Get task pagination
+     *
+     * @access private
+     * @param  integer  $user_id
+     * @param  string   $action
+     * @param  integer  $max
+     */
+    private function getTaskPaginator($user_id, $action, $max)
+    {
+        return $this->paginator
+            ->setUrl('app', $action, array('pagination' => 'tasks', 'user_id' => $user_id))
+            ->setMax($max)
+            ->setOrder('tasks.id')
+            ->setQuery($this->taskFinder->getUserQuery($user_id))
+            ->calculateOnlyIf($this->request->getStringParam('pagination') === 'tasks');
+    }
+
+    /**
+     * Get subtask pagination
+     *
+     * @access private
+     * @param  integer  $user_id
+     * @param  string   $action
+     * @param  integer  $max
+     */
+    private function getSubtaskPaginator($user_id, $action, $max)
+    {
+        return $this->paginator
+            ->setUrl('app', $action, array('pagination' => 'subtasks', 'user_id' => $user_id))
+            ->setMax($max)
+            ->setOrder('tasks.id')
+            ->setQuery($this->subtask->getUserQuery($user_id, array(SubTaskModel::STATUS_TODO, SubtaskModel::STATUS_INPROGRESS)))
+            ->calculateOnlyIf($this->request->getStringParam('pagination') === 'subtasks');
+    }
+
     /**
      * Check if the user is connected
      *
@@ -24,99 +77,113 @@ class App extends Base
     }
 
     /**
-     * User dashboard view for admins
+     * Dashboard overview
      *
      * @access public
      */
-    public function dashboard()
+    public function index()
     {
-        $this->index($this->request->getIntegerParam('user_id'), 'dashboard');
-    }
+        $user = $this->getUser();
 
-    /**
-     * Dashboard for the current user
-     *
-     * @access public
-     */
-    public function index($user_id = 0, $action = 'index')
-    {
-        $status = array(SubTaskModel::STATUS_TODO, SubtaskModel::STATUS_INPROGRESS);
-        $user_id = $user_id ?: $this->userSession->getId();
-        $projects = $this->projectPermission->getActiveMemberProjects($user_id);
-        $project_ids = array_keys($projects);
-
-        $task_paginator = $this->paginator
-            ->setUrl('app', $action, array('pagination' => 'tasks', 'user_id' => $user_id))
-            ->setMax(10)
-            ->setOrder('tasks.id')
-            ->setQuery($this->taskFinder->getUserQuery($user_id))
-            ->calculateOnlyIf($this->request->getStringParam('pagination') === 'tasks');
-
-        $subtask_paginator = $this->paginator
-            ->setUrl('app', $action, array('pagination' => 'subtasks', 'user_id' => $user_id))
-            ->setMax(10)
-            ->setOrder('tasks.id')
-            ->setQuery($this->subtask->getUserQuery($user_id, $status))
-            ->calculateOnlyIf($this->request->getStringParam('pagination') === 'subtasks');
-
-        $project_paginator = $this->paginator
-            ->setUrl('app', $action, array('pagination' => 'projects', 'user_id' => $user_id))
-            ->setMax(10)
-            ->setOrder('name')
-            ->setQuery($this->project->getQueryColumnStats($project_ids))
-            ->calculateOnlyIf($this->request->getStringParam('pagination') === 'projects');
-
-        $this->response->html($this->template->layout('app/dashboard', array(
+        $this->response->html($this->helper->layout->dashboard('app/overview', array(
             'title' => t('Dashboard'),
-            'board_selector' => $this->projectPermission->getAllowedProjects($user_id),
-            'events' => $this->projectActivity->getProjects($project_ids, 5),
-            'task_paginator' => $task_paginator,
-            'subtask_paginator' => $subtask_paginator,
-            'project_paginator' => $project_paginator,
-            'user_id' => $user_id,
+            'project_paginator' => $this->getProjectPaginator($user['id'], 'index', 10),
+            'task_paginator' => $this->getTaskPaginator($user['id'], 'index', 10),
+            'subtask_paginator' => $this->getSubtaskPaginator($user['id'], 'index', 10),
+            'user' => $user,
         )));
     }
 
     /**
-     * Render Markdown text and reply with the HTML Code
+     * My tasks
      *
      * @access public
      */
-    public function preview()
+    public function tasks()
     {
-        $payload = $this->request->getJson();
+        $user = $this->getUser();
 
-        if (empty($payload['text'])) {
-            $this->response->html('<p>'.t('Nothing to preview...').'</p>');
-        }
-
-        $this->response->html($this->template->markdown($payload['text']));
+        $this->response->html($this->helper->layout->dashboard('app/tasks', array(
+            'title' => t('My tasks'),
+            'paginator' => $this->getTaskPaginator($user['id'], 'tasks', 50),
+            'user' => $user,
+        )));
     }
 
     /**
-     * Colors stylesheet
+     * My subtasks
      *
      * @access public
      */
-    public function colors()
+    public function subtasks()
     {
-        $this->response->css($this->color->getCss());
+        $user = $this->getUser();
+
+        $this->response->html($this->helper->layout->dashboard('app/subtasks', array(
+            'title' => t('My subtasks'),
+            'paginator' => $this->getSubtaskPaginator($user['id'], 'subtasks', 50),
+            'user' => $user,
+        )));
     }
 
     /**
-     * Task autocompletion (Ajax)
+     * My projects
      *
      * @access public
      */
-    public function autocomplete()
+    public function projects()
     {
-        $this->response->json(
-            $this->taskFilter
-                 ->create()
-                 ->filterByProjects($this->projectPermission->getActiveMemberProjectIds($this->userSession->getId()))
-                 ->excludeTasks(array($this->request->getIntegerParam('exclude_task_id')))
-                 ->filterByTitle($this->request->getStringParam('term'))
-                 ->toAutoCompletion()
-        );
+        $user = $this->getUser();
+
+        $this->response->html($this->helper->layout->dashboard('app/projects', array(
+            'title' => t('My projects'),
+            'paginator' => $this->getProjectPaginator($user['id'], 'projects', 25),
+            'user' => $user,
+        )));
+    }
+
+    /**
+     * My activity stream
+     *
+     * @access public
+     */
+    public function activity()
+    {
+        $user = $this->getUser();
+
+        $this->response->html($this->helper->layout->dashboard('app/activity', array(
+            'title' => t('My activity stream'),
+            'events' => $this->projectActivity->getProjects($this->projectPermission->getActiveProjectIds($user['id']), 100),
+            'user' => $user,
+        )));
+    }
+
+    /**
+     * My calendar
+     *
+     * @access public
+     */
+    public function calendar()
+    {
+        $this->response->html($this->helper->layout->dashboard('app/calendar', array(
+            'title' => t('My calendar'),
+            'user' => $this->getUser(),
+        )));
+    }
+
+    /**
+     * My notifications
+     *
+     * @access public
+     */
+    public function notifications()
+    {
+        $user = $this->getUser();
+
+        $this->response->html($this->helper->layout->dashboard('app/notifications', array(
+            'title' => t('My notifications'),
+            'notifications' => $this->userUnreadNotification->getAll($user['id']),
+            'user' => $user,
+        )));
     }
 }

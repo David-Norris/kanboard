@@ -1,6 +1,6 @@
 <?php
 
-namespace Model;
+namespace Kanboard\Model;
 
 /**
  * Project activity model
@@ -138,23 +138,22 @@ class ProjectActivity extends Base
      */
     private function getEvents(\PicoDb\Table $query, $start, $end)
     {
-        if (! is_null($start)){
+        if (! is_null($start)) {
             $query->gte('date_creation', $start);
         }
 
-        if (! is_null($end)){
+        if (! is_null($end)) {
             $query->lte('date_creation', $end);
         }
 
         $events = $query->findAll();
 
         foreach ($events as &$event) {
-
             $event += $this->decode($event['data']);
             unset($event['data']);
 
             $event['author'] = $event['author_name'] ?: $event['author_username'];
-            $event['event_title'] = $this->getTitle($event);
+            $event['event_title'] = $this->notification->getTitleWithAuthor($event['author'], $event['event_name'], $event);
             $event['event_content'] = $this->getContent($event);
         }
 
@@ -169,16 +168,11 @@ class ProjectActivity extends Base
      */
     public function cleanup($max)
     {
-        if ($this->db->table(self::TABLE)->count() > $max) {
+        $total = $this->db->table(self::TABLE)->count();
 
-            $this->db->execute('
-                DELETE FROM '.self::TABLE.'
-                WHERE id <= (
-                    SELECT id FROM (
-                        SELECT id FROM '.self::TABLE.' ORDER BY id DESC LIMIT 1 OFFSET '.$max.'
-                    ) foo
-                )'
-            );
+        if ($total > $max) {
+            $ids = $this->db->table(self::TABLE)->asc('id')->limit($total - $max)->findAllByColumn('id');
+            $this->db->table(self::TABLE)->in('id', $ids)->remove();
         }
     }
 
@@ -195,49 +189,6 @@ class ProjectActivity extends Base
             'event/'.str_replace('.', '_', $params['event_name']),
             $params
         );
-    }
-
-    /**
-     * Get the event title (translated)
-     *
-     * @access public
-     * @param  array     $event    Event properties
-     * @return string
-     */
-    public function getTitle(array $event)
-    {
-        switch ($event['event_name']) {
-            case Task::EVENT_ASSIGNEE_CHANGE:
-                $assignee = $event['task']['assignee_name'] ?: $event['task']['assignee_username'];
-
-                if (! empty($assignee)) {
-                    return t('%s change the assignee of the task #%d to %s', $event['author'], $event['task']['id'], $assignee);
-                }
-
-                return t('%s remove the assignee of the task %s', $event['author'], e('#%d', $event['task']['id']));
-            case Task::EVENT_UPDATE:
-                return t('%s updated the task #%d', $event['author'], $event['task']['id']);
-            case Task::EVENT_CREATE:
-                return t('%s created the task #%d', $event['author'], $event['task']['id']);
-            case Task::EVENT_CLOSE:
-                return t('%s closed the task #%d', $event['author'], $event['task']['id']);
-            case Task::EVENT_OPEN:
-                return t('%s open the task #%d', $event['author'], $event['task']['id']);
-            case Task::EVENT_MOVE_COLUMN:
-                return t('%s moved the task #%d to the column "%s"', $event['author'], $event['task']['id'], $event['task']['column_title']);
-            case Task::EVENT_MOVE_POSITION:
-                return t('%s moved the task #%d to the position %d in the column "%s"', $event['author'], $event['task']['id'], $event['task']['position'], $event['task']['column_title']);
-            case Subtask::EVENT_UPDATE:
-                return t('%s updated a subtask for the task #%d', $event['author'], $event['task']['id']);
-            case Subtask::EVENT_CREATE:
-                return t('%s created a subtask for the task #%d', $event['author'], $event['task']['id']);
-            case Comment::EVENT_UPDATE:
-                return t('%s updated a comment on the task #%d', $event['author'], $event['task']['id']);
-            case Comment::EVENT_CREATE:
-                return t('%s commented on the task #%d', $event['author'], $event['task']['id']);
-            default:
-                return '';
-        }
     }
 
     /**

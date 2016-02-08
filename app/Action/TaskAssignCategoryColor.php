@@ -1,8 +1,8 @@
 <?php
 
-namespace Action;
+namespace Kanboard\Action;
 
-use Model\Task;
+use Kanboard\Model\Task;
 
 /**
  * Set a category automatically according to the color
@@ -12,6 +12,17 @@ use Model\Task;
  */
 class TaskAssignCategoryColor extends Base
 {
+    /**
+     * Get automatic action description
+     *
+     * @access public
+     * @return string
+     */
+    public function getDescription()
+    {
+        return t('Assign automatically a category based on a color');
+    }
+
     /**
      * Get the list of compatible events
      *

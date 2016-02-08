@@ -1,16 +1,28 @@
 <?php
 
-namespace Action;
+namespace Kanboard\Action;
 
-use Model\Task;
+use Kanboard\Model\Task;
 
 /**
  * Assign a color to a task
  *
  * @package action
+ * @author  Frederic Guillot
  */
 class TaskAssignColorColumn extends Base
 {
+    /**
+     * Get automatic action description
+     *
+     * @access public
+     * @return string
+     */
+    public function getDescription()
+    {
+        return t('Assign a color when the task is moved to a specific column');
+    }
+
     /**
      * Get the list of compatible events
      *
@@ -20,6 +32,7 @@ class TaskAssignColorColumn extends Base
     public function getCompatibleEvents()
     {
         return array(
+            Task::EVENT_CREATE,
             Task::EVENT_MOVE_COLUMN,
         );
     }
@@ -66,7 +79,7 @@ class TaskAssignColorColumn extends Base
             'color_id' => $this->getParam('color_id'),
         );
 
-        return $this->taskModification->update($values);
+        return $this->taskModification->update($values, false);
     }
 
     /**

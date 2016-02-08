@@ -1,9 +1,6 @@
 <?php
 
-namespace Model;
-
-use SimpleValidator\Validator;
-use SimpleValidator\Validators;
+namespace Kanboard\Model;
 
 /**
  * Swimlanes
@@ -87,7 +84,7 @@ class Swimlane extends Base
         return $this->db->table(self::TABLE)
                         ->eq('project_id', $project_id)
                         ->eq('name', $name)
-                        ->findAll();
+                        ->findOne();
     }
 
     /**
@@ -99,10 +96,11 @@ class Swimlane extends Base
      */
     public function getDefault($project_id)
     {
-        $result = $this->db->table(Project::TABLE)
-                       ->eq('id', $project_id)
-                       ->columns('id', 'default_swimlane', 'show_default_swimlane')
-                       ->findOne();
+        $result = $this->db
+            ->table(Project::TABLE)
+            ->eq('id', $project_id)
+            ->columns('id', 'default_swimlane', 'show_default_swimlane')
+            ->findOne();
 
         if ($result['default_swimlane'] === 'Default swimlane') {
             $result['default_swimlane'] = t($result['default_swimlane']);
@@ -120,10 +118,11 @@ class Swimlane extends Base
      */
     public function getAll($project_id)
     {
-        return $this->db->table(self::TABLE)
-                        ->eq('project_id', $project_id)
-                        ->orderBy('position', 'asc')
-                        ->findAll();
+        return $this->db
+            ->table(self::TABLE)
+            ->eq('project_id', $project_id)
+            ->orderBy('position', 'asc')
+            ->findAll();
     }
 
     /**
@@ -136,14 +135,14 @@ class Swimlane extends Base
      */
     public function getAllByStatus($project_id, $status = self::ACTIVE)
     {
-        $query = $this->db->table(self::TABLE)
-                        ->eq('project_id', $project_id)
-                        ->eq('is_active', $status);
+        $query = $this->db
+            ->table(self::TABLE)
+            ->eq('project_id', $project_id)
+            ->eq('is_active', $status);
 
         if ($status == self::ACTIVE) {
             $query->asc('position');
-        }
-        else {
+        } else {
             $query->asc('name');
         }
 
@@ -159,20 +158,21 @@ class Swimlane extends Base
      */
     public function getSwimlanes($project_id)
     {
-        $swimlanes = $this->db->table(self::TABLE)
-                              ->columns('id', 'name')
-                              ->eq('project_id', $project_id)
-                              ->eq('is_active', self::ACTIVE)
-                              ->orderBy('position', 'asc')
-                              ->findAll();
+        $swimlanes = $this->db
+            ->table(self::TABLE)
+            ->columns('id', 'name', 'description')
+            ->eq('project_id', $project_id)
+            ->eq('is_active', self::ACTIVE)
+            ->orderBy('position', 'asc')
+            ->findAll();
 
-        $default_swimlane = $this->db->table(Project::TABLE)
-                                     ->eq('id', $project_id)
-                                     ->eq('show_default_swimlane', 1)
-                                     ->findOneColumn('default_swimlane');
+        $default_swimlane = $this->db
+            ->table(Project::TABLE)
+            ->eq('id', $project_id)
+            ->eq('show_default_swimlane', 1)
+            ->findOneColumn('default_swimlane');
 
         if ($default_swimlane) {
-
             if ($default_swimlane === 'Default swimlane') {
                 $default_swimlane = t($default_swimlane);
             }
@@ -189,9 +189,10 @@ class Swimlane extends Base
      * @access public
      * @param  integer   $project_id    Project id
      * @param  boolean   $prepend       Prepend default value
+     * @param  boolean   $only_active   Return only active swimlanes
      * @return array
      */
-    public function getList($project_id, $prepend = false)
+    public function getList($project_id, $prepend = false, $only_active = false)
     {
         $swimlanes = array();
         $default = $this->db->table(Project::TABLE)->eq('id', $project_id)->eq('show_default_swimlane', 1)->findOneColumn('default_swimlane');
@@ -204,39 +205,43 @@ class Swimlane extends Base
             $swimlanes[0] = $default === 'Default swimlane' ? t($default) : $default;
         }
 
-        return $swimlanes + $this->db->hashtable(self::TABLE)->eq('project_id', $project_id)->orderBy('position', 'asc')->getAll('id', 'name');
+        return $swimlanes + $this->db
+            ->hashtable(self::TABLE)
+            ->eq('project_id', $project_id)
+            ->in('is_active', $only_active ? array(self::ACTIVE) : array(self::ACTIVE, self::INACTIVE))
+            ->orderBy('position', 'asc')
+            ->getAll('id', 'name');
     }
 
     /**
      * Add a new swimlane
      *
      * @access public
-     * @param  integer   $project_id
-     * @param  string    $name
+     * @param  array    $values   Form values
      * @return integer|boolean
      */
-    public function create($project_id, $name)
+    public function create($values)
     {
-        return $this->persist(self::TABLE, array(
-            'project_id' => $project_id,
-            'name' => $name,
-            'position' => $this->getLastPosition($project_id),
-        ));
+        if (! $this->project->exists($values['project_id'])) {
+            return 0;
+        }
+        $values['position'] = $this->getLastPosition($values['project_id']);
+        return $this->persist(self::TABLE, $values);
     }
 
     /**
-     * Rename a swimlane
+     * Update a swimlane
      *
      * @access public
-     * @param  integer   $swimlane_id    Swimlane id
-     * @param  string    $name           Swimlane name
+     * @param  array    $values    Form values
      * @return bool
      */
-    public function rename($swimlane_id, $name)
+    public function update(array $values)
     {
-        return $this->db->table(self::TABLE)
-                        ->eq('id', $swimlane_id)
-                        ->update(array('name' => $name));
+        return $this->db
+            ->table(self::TABLE)
+            ->eq('id', $values['id'])
+            ->update($values);
     }
 
     /**
@@ -249,12 +254,12 @@ class Swimlane extends Base
     public function updateDefault(array $values)
     {
         return $this->db
-                    ->table(Project::TABLE)
-                    ->eq('id', $values['id'])
-                    ->update(array(
-                        'default_swimlane' => $values['default_swimlane'],
-                        'show_default_swimlane' => $values['show_default_swimlane'],
-                    ));
+            ->table(Project::TABLE)
+            ->eq('id', $values['id'])
+            ->update(array(
+                'default_swimlane' => $values['default_swimlane'],
+                'show_default_swimlane' => $values['show_default_swimlane'],
+            ));
     }
 
     /**
@@ -266,10 +271,11 @@ class Swimlane extends Base
      */
     public function getLastPosition($project_id)
     {
-        return $this->db->table(self::TABLE)
-                        ->eq('project_id', $project_id)
-                        ->eq('is_active', 1)
-                        ->count() + 1;
+        return $this->db
+            ->table(self::TABLE)
+            ->eq('project_id', $project_id)
+            ->eq('is_active', 1)
+            ->count() + 1;
     }
 
     /**
@@ -283,12 +289,12 @@ class Swimlane extends Base
     public function disable($project_id, $swimlane_id)
     {
         $result = $this->db
-                    ->table(self::TABLE)
-                    ->eq('id', $swimlane_id)
-                    ->update(array(
-                        'is_active' => self::INACTIVE,
-                        'position' => 0,
-                    ));
+            ->table(self::TABLE)
+            ->eq('id', $swimlane_id)
+            ->update(array(
+                'is_active' => self::INACTIVE,
+                'position' => 0,
+            ));
 
         if ($result) {
             // Re-order positions
@@ -309,12 +315,12 @@ class Swimlane extends Base
     public function enable($project_id, $swimlane_id)
     {
         return $this->db
-                    ->table(self::TABLE)
-                    ->eq('id', $swimlane_id)
-                    ->update(array(
-                        'is_active' => self::ACTIVE,
-                        'position' => $this->getLastPosition($project_id),
-                    ));
+            ->table(self::TABLE)
+            ->eq('id', $swimlane_id)
+            ->update(array(
+                'is_active' => self::ACTIVE,
+                'position' => $this->getLastPosition($project_id),
+            ));
     }
 
     /**
@@ -355,11 +361,12 @@ class Swimlane extends Base
     public function updatePositions($project_id)
     {
         $position = 0;
-        $swimlanes = $this->db->table(self::TABLE)
-                              ->eq('project_id', $project_id)
-                              ->eq('is_active', 1)
-                              ->asc('position')
-                              ->findAllByColumn('id');
+        $swimlanes = $this->db
+            ->table(self::TABLE)
+            ->eq('project_id', $project_id)
+            ->eq('is_active', 1)
+            ->asc('position')
+            ->findAllByColumn('id');
 
         if (! $swimlanes) {
             return false;
@@ -367,8 +374,8 @@ class Swimlane extends Base
 
         foreach ($swimlanes as $swimlane_id) {
             $this->db->table(self::TABLE)
-                     ->eq('id', $swimlane_id)
-                     ->update(array('position' => ++$position));
+                ->eq('id', $swimlane_id)
+                ->update(array('position' => ++$position));
         }
 
         return true;
@@ -385,15 +392,14 @@ class Swimlane extends Base
     public function moveDown($project_id, $swimlane_id)
     {
         $swimlanes = $this->db->hashtable(self::TABLE)
-                              ->eq('project_id', $project_id)
-                              ->eq('is_active', self::ACTIVE)
-                              ->asc('position')
-                              ->getAll('id', 'position');
+            ->eq('project_id', $project_id)
+            ->eq('is_active', self::ACTIVE)
+            ->asc('position')
+            ->getAll('id', 'position');
 
         $positions = array_flip($swimlanes);
 
         if (isset($swimlanes[$swimlane_id]) && $swimlanes[$swimlane_id] < count($swimlanes)) {
-
             $position = ++$swimlanes[$swimlane_id];
             $swimlanes[$positions[$position]]--;
 
@@ -419,15 +425,14 @@ class Swimlane extends Base
     public function moveUp($project_id, $swimlane_id)
     {
         $swimlanes = $this->db->hashtable(self::TABLE)
-                              ->eq('project_id', $project_id)
-                              ->eq('is_active', self::ACTIVE)
-                              ->asc('position')
-                              ->getAll('id', 'position');
+            ->eq('project_id', $project_id)
+            ->eq('is_active', self::ACTIVE)
+            ->asc('position')
+            ->getAll('id', 'position');
 
         $positions = array_flip($swimlanes);
 
         if (isset($swimlanes[$swimlane_id]) && $swimlanes[$swimlane_id] > 1) {
-
             $position = --$swimlanes[$swimlane_id];
             $swimlanes[$positions[$position]]++;
 
@@ -456,7 +461,6 @@ class Swimlane extends Base
         $swimlanes = $this->getAll($project_from);
 
         foreach ($swimlanes as $swimlane) {
-
             unset($swimlane['id']);
             $swimlane['project_id'] = $project_to;
 
@@ -471,86 +475,5 @@ class Swimlane extends Base
         $this->updateDefault($default_swimlane);
 
         return true;
-    }
-
-    /**
-     * Validate creation
-     *
-     * @access public
-     * @param  array   $values           Form values
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validateCreation(array $values)
-    {
-        $rules = array(
-            new Validators\Required('project_id', t('The project id is required')),
-            new Validators\Required('name', t('The name is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonValidationRules()));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
-    }
-
-    /**
-     * Validate modification
-     *
-     * @access public
-     * @param  array   $values           Form values
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validateModification(array $values)
-    {
-        $rules = array(
-            new Validators\Required('id', t('The id is required')),
-            new Validators\Required('name', t('The name is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonValidationRules()));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
-    }
-
-    /**
-     * Validate default swimlane modification
-     *
-     * @access public
-     * @param  array   $values           Form values
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validateDefaultModification(array $values)
-    {
-        $rules = array(
-            new Validators\Required('id', t('The id is required')),
-            new Validators\Required('default_swimlane', t('The name is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonValidationRules()));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
-    }
-
-    /**
-     * Common validation rules
-     *
-     * @access private
-     * @return array
-     */
-    private function commonValidationRules()
-    {
-        return array(
-            new Validators\Integer('id', t('The id must be an integer')),
-            new Validators\Integer('project_id', t('The project id must be an integer')),
-            new Validators\MaxLength('name', t('The maximum length is %d characters', 50), 50)
-        );
     }
 }

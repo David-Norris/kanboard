@@ -1,8 +1,10 @@
 <?php
 
-namespace Model;
+namespace Kanboard\Model;
 
-use Event\FileEvent;
+use Kanboard\Event\FileEvent;
+use Kanboard\Core\Tool;
+use Kanboard\Core\ObjectStorage\ObjectStorageException;
 
 /**
  * File model
@@ -47,13 +49,19 @@ class File extends Base
      */
     public function remove($file_id)
     {
-        $file = $this->getbyId($file_id);
+        try {
+            $file = $this->getbyId($file_id);
+            $this->objectStorage->remove($file['path']);
 
-        if (! empty($file) && @unlink(FILES_DIR.$file['path'])) {
-            return $this->db->table(self::TABLE)->eq('id', $file_id)->remove();
+            if ($file['is_image'] == 1) {
+                $this->objectStorage->remove($this->getThumbnailPath($file['path']));
+            }
+
+            return $this->db->table(self::TABLE)->eq('id', $file['id'])->remove();
+        } catch (ObjectStorageException $e) {
+            $this->logger->error($e->getMessage());
+            return false;
         }
-
-        return false;
     }
 
     /**
@@ -65,11 +73,14 @@ class File extends Base
      */
     public function removeAll($task_id)
     {
-        $files = $this->getAll($task_id);
+        $file_ids = $this->db->table(self::TABLE)->eq('task_id', $task_id)->asc('id')->findAllByColumn('id');
+        $results = array();
 
-        foreach ($files as $file) {
-            $this->remove($file['id']);
+        foreach ($file_ids as $file_id) {
+            $results[] = $this->remove($file_id);
         }
+
+        return ! in_array(false, $results, true);
     }
 
     /**
@@ -79,26 +90,57 @@ class File extends Base
      * @param  integer  $task_id    Task id
      * @param  string   $name       Filename
      * @param  string   $path       Path on the disk
-     * @param  bool     $is_image   Image or not
      * @param  integer  $size       File size
-     * @return bool
+     * @return bool|integer
      */
-    public function create($task_id, $name, $path, $is_image, $size)
+    public function create($task_id, $name, $path, $size)
     {
-        $this->container['dispatcher']->dispatch(
-            self::EVENT_CREATE,
-            new FileEvent(array('task_id' => $task_id, 'name' => $name))
-        );
-
-        return $this->db->table(self::TABLE)->save(array(
+        $result = $this->db->table(self::TABLE)->save(array(
             'task_id' => $task_id,
-            'name' => $name,
+            'name' => substr($name, 0, 255),
             'path' => $path,
-            'is_image' => $is_image ? '1' : '0',
+            'is_image' => $this->isImage($name) ? 1 : 0,
             'size' => $size,
-            'user_id' => $this->userSession->getId(),
+            'user_id' => $this->userSession->getId() ?: 0,
             'date' => time(),
         ));
+
+        if ($result) {
+            $this->container['dispatcher']->dispatch(
+                self::EVENT_CREATE,
+                new FileEvent(array('task_id' => $task_id, 'name' => $name))
+            );
+
+            return (int) $this->db->getLastId();
+        }
+
+        return false;
+    }
+
+    /**
+     * Get PicoDb query to get all files
+     *
+     * @access public
+     * @return \PicoDb\Table
+     */
+    public function getQuery()
+    {
+        return $this->db
+            ->table(self::TABLE)
+            ->columns(
+                self::TABLE.'.id',
+                self::TABLE.'.name',
+                self::TABLE.'.path',
+                self::TABLE.'.is_image',
+                self::TABLE.'.task_id',
+                self::TABLE.'.date',
+                self::TABLE.'.user_id',
+                self::TABLE.'.size',
+                User::TABLE.'.username',
+                User::TABLE.'.name as user_name'
+            )
+            ->join(User::TABLE, 'id', 'user_id')
+            ->asc(self::TABLE.'.name');
     }
 
     /**
@@ -110,24 +152,7 @@ class File extends Base
      */
     public function getAll($task_id)
     {
-        return $this->db
-            ->table(self::TABLE)
-            ->columns(
-                self::TABLE.'.id',
-                self::TABLE.'.name',
-                self::TABLE.'.path',
-                self::TABLE.'.is_image',
-                self::TABLE.'.task_id',
-                self::TABLE.'.date',
-                self::TABLE.'.user_id',
-                self::TABLE.'.size',
-                User::TABLE.'.username',
-                User::TABLE.'.name as user_name'
-            )
-            ->join(User::TABLE, 'id', 'user_id')
-            ->eq('task_id', $task_id)
-            ->asc(self::TABLE.'.name')
-            ->findAll();
+        return $this->getQuery()->eq('task_id', $task_id)->findAll();
     }
 
     /**
@@ -139,25 +164,7 @@ class File extends Base
      */
     public function getAllImages($task_id)
     {
-        return $this->db
-            ->table(self::TABLE)
-            ->columns(
-                self::TABLE.'.id',
-                self::TABLE.'.name',
-                self::TABLE.'.path',
-                self::TABLE.'.is_image',
-                self::TABLE.'.task_id',
-                self::TABLE.'.date',
-                self::TABLE.'.user_id',
-                self::TABLE.'.size',
-                User::TABLE.'.username',
-                User::TABLE.'.name as user_name'
-            )
-            ->join(User::TABLE, 'id', 'user_id')
-            ->eq('task_id', $task_id)
-            ->eq('is_image', 1)
-            ->asc(self::TABLE.'.name')
-            ->findAll();
+        return $this->getQuery()->eq('task_id', $task_id)->eq('is_image', 1)->findAll();
     }
 
     /**
@@ -169,29 +176,11 @@ class File extends Base
      */
     public function getAllDocuments($task_id)
     {
-        return $this->db
-            ->table(self::TABLE)
-            ->columns(
-                self::TABLE.'.id',
-                self::TABLE.'.name',
-                self::TABLE.'.path',
-                self::TABLE.'.is_image',
-                self::TABLE.'.task_id',
-                self::TABLE.'.date',
-                self::TABLE.'.user_id',
-                self::TABLE.'.size',
-                User::TABLE.'.username',
-                User::TABLE.'.name as user_name'
-            )
-            ->join(User::TABLE, 'id', 'user_id')
-            ->eq('task_id', $task_id)
-            ->eq('is_image', 0)
-            ->asc(self::TABLE.'.name')
-            ->findAll();
+        return $this->getQuery()->eq('task_id', $task_id)->eq('is_image', 0)->findAll();
     }
 
     /**
-     * Check if a filename is an image
+     * Check if a filename is an image (file types that can be shown as thumbnail)
      *
      * @access public
      * @param  string   $filename   Filename
@@ -213,6 +202,30 @@ class File extends Base
     }
 
     /**
+     * Return the image mimetype based on the file extension
+     *
+     * @access public
+     * @param  $filename
+     * @return string
+     */
+    public function getImageMimeType($filename)
+    {
+        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+        switch ($extension) {
+            case 'jpeg':
+            case 'jpg':
+                return 'image/jpeg';
+            case 'png':
+                return 'image/png';
+            case 'gif':
+                return 'image/gif';
+            default:
+                return 'image/jpeg';
+        }
+    }
+
+    /**
      * Generate the path for a new filename
      *
      * @access public
@@ -227,21 +240,15 @@ class File extends Base
     }
 
     /**
-     * Check if the base directory is created correctly
+     * Generate the path for a thumbnails
      *
      * @access public
+     * @param  string  $key  Storage key
+     * @return string
      */
-    public function setup()
+    public function getThumbnailPath($key)
     {
-        if (! is_dir(FILES_DIR)) {
-            if (! mkdir(FILES_DIR, 0755, true)) {
-                die('Unable to create the upload directory: "'.FILES_DIR.'"');
-            }
-        }
-
-        if (! is_writable(FILES_DIR)) {
-            die('The directory "'.FILES_DIR.'" must be writeable by your webserver user');
-        }
+        return 'thumbnails'.DIRECTORY_SEPARATOR.$key;
     }
 
     /**
@@ -253,38 +260,41 @@ class File extends Base
      * @param  string   $form_name     File form name
      * @return bool
      */
-    public function upload($project_id, $task_id, $form_name)
+    public function uploadFiles($project_id, $task_id, $form_name)
     {
-        $this->setup();
-        $result = array();
+        try {
+            $file = $this->request->getFileInfo($form_name);
 
-        if (! empty($_FILES[$form_name])) {
+            if (empty($file)) {
+                return false;
+            }
 
-            foreach ($_FILES[$form_name]['error'] as $key => $error) {
-
-                if ($error == UPLOAD_ERR_OK && $_FILES[$form_name]['size'][$key] > 0) {
-
-                    $original_filename = basename($_FILES[$form_name]['name'][$key]);
-                    $uploaded_filename = $_FILES[$form_name]['tmp_name'][$key];
+            foreach ($file['error'] as $key => $error) {
+                if ($error == UPLOAD_ERR_OK && $file['size'][$key] > 0) {
+                    $original_filename = $file['name'][$key];
+                    $uploaded_filename = $file['tmp_name'][$key];
                     $destination_filename = $this->generatePath($project_id, $task_id, $original_filename);
 
-                    @mkdir(FILES_DIR.dirname($destination_filename), 0755, true);
-
-                    if (@move_uploaded_file($uploaded_filename, FILES_DIR.$destination_filename)) {
-
-                        $result[] = $this->create(
-                            $task_id,
-                            $original_filename,
-                            $destination_filename,
-                            $this->isImage($original_filename),
-                            $_FILES[$form_name]['size'][$key]
-                        );
+                    if ($this->isImage($original_filename)) {
+                        $this->generateThumbnailFromFile($uploaded_filename, $destination_filename);
                     }
+
+                    $this->objectStorage->moveUploadedFile($uploaded_filename, $destination_filename);
+
+                    $this->create(
+                        $task_id,
+                        $original_filename,
+                        $destination_filename,
+                        $file['size'][$key]
+                    );
                 }
             }
-        }
 
-        return count(array_unique($result)) === 1;
+            return true;
+        } catch (ObjectStorageException $e) {
+            $this->logger->error($e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -294,103 +304,79 @@ class File extends Base
      * @param  integer  $project_id   Project id
      * @param  integer  $task_id      Task id
      * @param  string   $blob         Base64 encoded image
-     * @return bool
+     * @return bool|integer
      */
     public function uploadScreenshot($project_id, $task_id, $blob)
     {
-        $data = base64_decode($blob);
-
-        if (empty($data)) {
-            return false;
-        }
-
-        $original_filename = e('Screenshot taken %s', dt('%B %e, %Y at %k:%M %p', time()));
-        $destination_filename = $this->generatePath($project_id, $task_id, $original_filename);
-
-        @mkdir(FILES_DIR.dirname($destination_filename), 0755, true);
-        @file_put_contents(FILES_DIR.$destination_filename, $data);
-
-        return $this->create(
-            $task_id,
-            $original_filename,
-            $destination_filename,
-            true,
-            strlen($data)
-        );
+        $original_filename = e('Screenshot taken %s', $this->helper->dt->datetime(time())).'.png';
+        return $this->uploadContent($project_id, $task_id, $original_filename, $blob);
     }
 
     /**
-     * Generate a jpeg thumbnail from an image (output directly the image)
+     * Handle file upload (base64 encoded content)
      *
      * @access public
-     * @param  string    $filename         Source image
-     * @param  integer   $resize_width     Desired image width
-     * @param  integer   $resize_height    Desired image height
+     * @param  integer  $project_id            Project id
+     * @param  integer  $task_id               Task id
+     * @param  string   $original_filename     Filename
+     * @param  string   $blob                  Base64 encoded file
+     * @return bool|integer
      */
-    public function generateThumbnail($filename, $resize_width, $resize_height)
+    public function uploadContent($project_id, $task_id, $original_filename, $blob)
     {
-        $metadata = getimagesize($filename);
-        $src_width = $metadata[0];
-        $src_height = $metadata[1];
-        $dst_y = 0;
-        $dst_x = 0;
+        try {
+            $data = base64_decode($blob);
 
-        if (empty($metadata['mime'])) {
-            return;
-        }
-
-        if ($resize_width == 0 && $resize_height == 0) {
-            $resize_width = 100;
-            $resize_height = 100;
-        }
-
-        if ($resize_width > 0 && $resize_height == 0) {
-            $dst_width = $resize_width;
-            $dst_height = floor($src_height * ($resize_width / $src_width));
-            $dst_image = imagecreatetruecolor($dst_width, $dst_height);
-        }
-        elseif ($resize_width == 0 && $resize_height > 0) {
-            $dst_width = floor($src_width * ($resize_height / $src_height));
-            $dst_height = $resize_height;
-            $dst_image = imagecreatetruecolor($dst_width, $dst_height);
-        }
-        else {
-
-            $src_ratio = $src_width / $src_height;
-            $resize_ratio = $resize_width / $resize_height;
-
-            if ($src_ratio <= $resize_ratio) {
-                $dst_width = $resize_width;
-                $dst_height = floor($src_height * ($resize_width / $src_width));
-
-                $dst_y = ($dst_height - $resize_height) / 2 * (-1);
-            }
-            else {
-                $dst_width = floor($src_width * ($resize_height / $src_height));
-                $dst_height = $resize_height;
-
-                $dst_x = ($dst_width - $resize_width) / 2 * (-1);
+            if (empty($data)) {
+                return false;
             }
 
-            $dst_image = imagecreatetruecolor($resize_width, $resize_height);
-        }
+            $destination_filename = $this->generatePath($project_id, $task_id, $original_filename);
+            $this->objectStorage->put($destination_filename, $data);
 
-        switch ($metadata['mime']) {
-            case 'image/jpeg':
-            case 'image/jpg':
-                $src_image = imagecreatefromjpeg($filename);
-                break;
-            case 'image/png':
-                $src_image = imagecreatefrompng($filename);
-                break;
-            case 'image/gif':
-                $src_image = imagecreatefromgif($filename);
-                break;
-            default:
-                return;
-        }
+            if ($this->isImage($original_filename)) {
+                $this->generateThumbnailFromData($destination_filename, $data);
+            }
 
-        imagecopyresampled($dst_image, $src_image, $dst_x, $dst_y, 0, 0, $dst_width, $dst_height, $src_width, $src_height);
-        imagejpeg($dst_image);
+            return $this->create(
+                $task_id,
+                $original_filename,
+                $destination_filename,
+                strlen($data)
+            );
+        } catch (ObjectStorageException $e) {
+            $this->logger->error($e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Generate thumbnail from a blob
+     *
+     * @access public
+     * @param  string   $destination_filename
+     * @param  string   $data
+     */
+    public function generateThumbnailFromData($destination_filename, &$data)
+    {
+        $temp_filename = tempnam(sys_get_temp_dir(), 'datafile');
+
+        file_put_contents($temp_filename, $data);
+        $this->generateThumbnailFromFile($temp_filename, $destination_filename);
+        unlink($temp_filename);
+    }
+
+    /**
+     * Generate thumbnail from a blob
+     *
+     * @access public
+     * @param  string   $uploaded_filename
+     * @param  string   $destination_filename
+     */
+    public function generateThumbnailFromFile($uploaded_filename, $destination_filename)
+    {
+        $thumbnail_filename = tempnam(sys_get_temp_dir(), 'thumbnail');
+        Tool::generateThumbnail($uploaded_filename, $thumbnail_filename);
+        $this->objectStorage->moveFile($thumbnail_filename, $this->getThumbnailPath($destination_filename));
     }
 }

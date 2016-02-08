@@ -1,9 +1,6 @@
 <?php
 
-namespace Model;
-
-use SimpleValidator\Validator;
-use SimpleValidator\Validators;
+namespace Kanboard\Model;
 
 /**
  * Currency
@@ -21,6 +18,32 @@ class Currency extends Base
     const TABLE = 'currencies';
 
     /**
+     * Get available application currencies
+     *
+     * @access public
+     * @return array
+     */
+    public function getCurrencies()
+    {
+        return array(
+            'USD' => t('USD - US Dollar'),
+            'EUR' => t('EUR - Euro'),
+            'GBP' => t('GBP - British Pound'),
+            'CHF' => t('CHF - Swiss Francs'),
+            'CAD' => t('CAD - Canadian Dollar'),
+            'AUD' => t('AUD - Australian Dollar'),
+            'NZD' => t('NZD - New Zealand Dollar'),
+            'INR' => t('INR - Indian Rupee'),
+            'JPY' => t('JPY - Japanese Yen'),
+            'RSD' => t('RSD - Serbian dinar'),
+            'SEK' => t('SEK - Swedish Krona'),
+            'NOK' => t('NOK - Norwegian Krone'),
+            'BAM' => t('BAM - Konvertible Mark'),
+            'RUB' => t('RUB - Russian Ruble'),
+        );
+    }
+
+    /**
      * Get all currency rates
      *
      * @access public
@@ -35,7 +58,9 @@ class Currency extends Base
      * Calculate the price for the reference currency
      *
      * @access public
-     * @return array
+     * @param  string  $currency
+     * @param  double  $price
+     * @return double
      */
     public function getPrice($currency, $price)
     {
@@ -43,7 +68,7 @@ class Currency extends Base
         $reference = $this->config->get('application_currency', 'USD');
 
         if ($reference !== $currency) {
-            $rates = $rates === null ? $this->db->hashtable(self::TABLE)->getAll('currency', 'rate') : array();
+            $rates = $rates === null ? $this->db->hashtable(self::TABLE)->getAll('currency', 'rate') : $rates;
             $rate = isset($rates[$currency]) ? $rates[$currency] : 1;
 
             return $rate * $price;
@@ -62,11 +87,11 @@ class Currency extends Base
      */
     public function create($currency, $rate)
     {
-        if ($this->db->table(self::TABLE)->eq('currency', $currency)->count() === 1) {
+        if ($this->db->table(self::TABLE)->eq('currency', $currency)->exists()) {
             return $this->update($currency, $rate);
         }
 
-        return $this->persist(self::TABLE, compact('currency', 'rate'));
+        return $this->db->table(self::TABLE)->insert(array('currency' => $currency, 'rate' => $rate));
     }
 
     /**
@@ -80,25 +105,5 @@ class Currency extends Base
     public function update($currency, $rate)
     {
         return $this->db->table(self::TABLE)->eq('currency', $currency)->update(array('rate' => $rate));
-    }
-
-    /**
-     * Validate
-     *
-     * @access public
-     * @param  array   $values           Form values
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validate(array $values)
-    {
-        $v = new Validator($values, array(
-            new Validators\Required('currency', t('Field required')),
-            new Validators\Required('rate', t('Field required')),
-        ));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
     }
 }

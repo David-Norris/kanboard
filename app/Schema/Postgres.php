@@ -3,17 +3,506 @@
 namespace Schema;
 
 use PDO;
-use Core\Security;
-use Model\Link;
+use Kanboard\Core\Security\Token;
+use Kanboard\Core\Security\Role;
 
-const VERSION = 47;
+const VERSION = 84;
 
-function version_47($pdo)
+function version_84(PDO $pdo)
+{
+    $pdo->exec("
+        CREATE TABLE task_has_external_links (
+            id SERIAL,
+            link_type VARCHAR(100) NOT NULL,
+            dependency VARCHAR(100) NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            url VARCHAR(255) NOT NULL,
+            date_creation INT NOT NULL,
+            date_modification INT NOT NULL,
+            task_id INT NOT NULL,
+            creator_id INT DEFAULT 0,
+            FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        )
+    ");
+}
+
+function version_83(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE projects ADD COLUMN priority_default INTEGER DEFAULT 0");
+    $pdo->exec("ALTER TABLE projects ADD COLUMN priority_start INTEGER DEFAULT 0");
+    $pdo->exec("ALTER TABLE projects ADD COLUMN priority_end INTEGER DEFAULT 3");
+    $pdo->exec("ALTER TABLE tasks ADD COLUMN priority INTEGER DEFAULT 0");
+}
+
+function version_82(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE projects ADD COLUMN owner_id INTEGER DEFAULT 0");
+}
+
+function version_81(PDO $pdo)
+{
+    $pdo->exec("
+        CREATE TABLE password_reset (
+            token VARCHAR(80) PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            date_expiration INTEGER NOT NULL,
+            date_creation INTEGER NOT NULL,
+            ip VARCHAR(45) NOT NULL,
+            user_agent VARCHAR(255) NOT NULL,
+            is_active BOOLEAN NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ");
+
+    $pdo->exec("INSERT INTO settings VALUES ('password_reset', '1')");
+}
+
+function version_80(PDO $pdo)
+{
+    $pdo->exec('ALTER TABLE "actions" ALTER COLUMN "action_name" TYPE VARCHAR(255)');
+}
+
+function version_79(PDO $pdo)
+{
+    $rq = $pdo->prepare('SELECT * FROM actions');
+    $rq->execute();
+    $rows = $rq->fetchAll(PDO::FETCH_ASSOC) ?: array();
+
+    $rq = $pdo->prepare('UPDATE actions SET action_name=? WHERE id=?');
+
+    foreach ($rows as $row) {
+        if ($row['action_name'] === 'TaskAssignCurrentUser' && $row['event_name'] === 'task.move.column') {
+            $row['action_name'] = '\Kanboard\Action\TaskAssignCurrentUserColumn';
+        } elseif ($row['action_name'] === 'TaskClose' && $row['event_name'] === 'task.move.column') {
+            $row['action_name'] = '\Kanboard\Action\TaskCloseColumn';
+        } elseif ($row['action_name'] === 'TaskLogMoveAnotherColumn') {
+            $row['action_name'] = '\Kanboard\Action\CommentCreationMoveTaskColumn';
+        } elseif ($row['action_name']{0} !== '\\') {
+            $row['action_name'] = '\Kanboard\Action\\'.$row['action_name'];
+        }
+
+        $rq->execute(array($row['action_name'], $row['id']));
+    }
+}
+
+function version_78(PDO $pdo)
+{
+    $pdo->exec('ALTER TABLE "users" ALTER COLUMN "language" TYPE VARCHAR(5)');
+}
+
+function version_77(PDO $pdo)
+{
+    $pdo->exec('ALTER TABLE "users" ADD COLUMN "role" VARCHAR(25) NOT NULL DEFAULT \''.Role::APP_USER.'\'');
+
+    $rq = $pdo->prepare('SELECT * FROM "users"');
+    $rq->execute();
+    $rows = $rq->fetchAll(PDO::FETCH_ASSOC) ?: array();
+
+    $rq = $pdo->prepare('UPDATE "users" SET "role"=? WHERE "id"=?');
+
+    foreach ($rows as $row) {
+        $role = Role::APP_USER;
+
+        if ($row['is_admin'] == 1) {
+            $role = Role::APP_ADMIN;
+        } else if ($row['is_project_admin']) {
+            $role = Role::APP_MANAGER;
+        }
+
+        $rq->execute(array($role, $row['id']));
+    }
+
+    $pdo->exec('ALTER TABLE users DROP COLUMN "is_admin"');
+    $pdo->exec('ALTER TABLE users DROP COLUMN "is_project_admin"');
+}
+
+function version_76(PDO $pdo)
+{
+    $pdo->exec("
+        CREATE TABLE project_has_groups (
+            group_id INTEGER NOT NULL,
+            project_id INTEGER NOT NULL,
+            role VARCHAR(25) NOT NULL,
+            FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            UNIQUE(group_id, project_id)
+        )
+    ");
+
+    $pdo->exec("ALTER TABLE project_has_users ADD COLUMN role VARCHAR(25) NOT NULL DEFAULT '".Role::PROJECT_VIEWER."'");
+
+    $rq = $pdo->prepare('SELECT * FROM project_has_users');
+    $rq->execute();
+    $rows = $rq->fetchAll(PDO::FETCH_ASSOC) ?: array();
+
+    $rq = $pdo->prepare('UPDATE project_has_users SET "role"=? WHERE "id"=?');
+
+    foreach ($rows as $row) {
+        $rq->execute(array(
+            $row['is_owner'] == 1 ? Role::PROJECT_MANAGER : Role::PROJECT_MEMBER,
+            $row['id'],
+        ));
+    }
+
+    $pdo->exec('ALTER TABLE project_has_users DROP COLUMN "is_owner"');
+    $pdo->exec('ALTER TABLE project_has_users DROP COLUMN "id"');
+}
+
+function version_75(PDO $pdo)
+{
+    $pdo->exec("
+        CREATE TABLE groups (
+            id SERIAL PRIMARY KEY,
+            external_id VARCHAR(255) DEFAULT '',
+            name VARCHAR(100) NOT NULL UNIQUE
+        )
+    ");
+
+    $pdo->exec("
+        CREATE TABLE group_has_users (
+            group_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            UNIQUE(group_id, user_id)
+        )
+    ");
+}
+
+function version_74(PDO $pdo)
+{
+    $pdo->exec('ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_name_key');
+}
+
+function version_73(PDO $pdo)
+{
+    $pdo->exec("
+        CREATE TABLE user_has_metadata (
+            user_id INTEGER NOT NULL,
+            name VARCHAR(50) NOT NULL,
+            value VARCHAR(255) DEFAULT '',
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            UNIQUE(user_id, name)
+        )
+    ");
+
+    $pdo->exec("
+        CREATE TABLE project_has_metadata (
+            project_id INTEGER NOT NULL,
+            name VARCHAR(50) NOT NULL,
+            value VARCHAR(255) DEFAULT '',
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            UNIQUE(project_id, name)
+        )
+    ");
+
+    $pdo->exec("
+        CREATE TABLE task_has_metadata (
+            task_id INTEGER NOT NULL,
+            name VARCHAR(50) NOT NULL,
+            value VARCHAR(255) DEFAULT '',
+            FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            UNIQUE(task_id, name)
+        )
+    ");
+
+    $pdo->exec("DROP TABLE project_integrations");
+
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_jabber'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_jabber_server'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_jabber_domain'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_jabber_username'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_jabber_password'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_jabber_nickname'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_jabber_room'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_hipchat'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_hipchat_api_url'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_hipchat_room_id'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_hipchat_room_token'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_slack_webhook'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_slack_webhook_url'");
+    $pdo->exec("DELETE FROM settings WHERE \"option\"='integration_slack_webhook_channel'");
+}
+
+function version_72(PDO $pdo)
+{
+    $pdo->exec("
+        CREATE TABLE project_has_notification_types (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL,
+            notification_type VARCHAR(50) NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            UNIQUE(project_id, notification_type)
+        )
+    ");
+}
+
+function version_71(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE custom_filters ADD COLUMN \"append\" BOOLEAN DEFAULT '0'");
+}
+
+function version_70(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE tasks ALTER COLUMN date_due TYPE BIGINT");
+    $pdo->exec("ALTER TABLE tasks ALTER COLUMN date_creation TYPE BIGINT");
+    $pdo->exec("ALTER TABLE tasks ALTER COLUMN date_completed TYPE BIGINT");
+    $pdo->exec("ALTER TABLE tasks ALTER COLUMN date_started TYPE BIGINT");
+    $pdo->exec("ALTER TABLE tasks ALTER COLUMN date_moved TYPE BIGINT");
+    $pdo->exec("ALTER TABLE comments ALTER COLUMN date_creation TYPE BIGINT");
+    $pdo->exec("ALTER TABLE last_logins ALTER COLUMN date_creation TYPE BIGINT");
+    $pdo->exec("ALTER TABLE project_activities ALTER COLUMN date_creation TYPE BIGINT");
+    $pdo->exec("ALTER TABLE projects ALTER COLUMN last_modified TYPE BIGINT");
+    $pdo->exec("ALTER TABLE remember_me ALTER COLUMN date_creation TYPE BIGINT");
+    $pdo->exec('ALTER TABLE files ALTER COLUMN "date" TYPE BIGINT');
+    $pdo->exec('ALTER TABLE transitions ALTER COLUMN "date" TYPE BIGINT');
+    $pdo->exec('ALTER TABLE subtask_time_tracking ALTER COLUMN "start" TYPE BIGINT');
+    $pdo->exec('ALTER TABLE subtask_time_tracking ALTER COLUMN "end" TYPE BIGINT');
+    $pdo->exec('ALTER TABLE users ALTER COLUMN "lock_expiration_date" TYPE BIGINT');
+}
+
+function version_69(PDO $pdo)
+{
+    $pdo->exec("
+        CREATE TABLE user_has_unread_notifications (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            date_creation BIGINT NOT NULL,
+            event_name VARCHAR(50) NOT NULL,
+            event_data TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ");
+
+    $pdo->exec("
+        CREATE TABLE user_has_notification_types (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            notification_type VARCHAR(50),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ");
+
+    $pdo->exec('CREATE UNIQUE INDEX user_has_notification_types_user_idx ON user_has_notification_types(user_id, notification_type)');
+
+    // Migrate people who have notification enabled before
+    $rq = $pdo->prepare("SELECT id FROM users WHERE notifications_enabled='1'");
+    $rq->execute();
+    $user_ids = $rq->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    foreach ($user_ids as $user_id) {
+        $rq = $pdo->prepare('INSERT INTO user_has_notification_types (user_id, notification_type) VALUES (?, ?)');
+        $rq->execute(array($user_id, 'email'));
+    }
+}
+
+function version_68(PDO $pdo)
+{
+    $pdo->exec("
+        CREATE TABLE custom_filters (
+            id SERIAL PRIMARY KEY,
+            filter VARCHAR(100) NOT NULL,
+            project_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            name VARCHAR(100) NOT NULL,
+            is_shared BOOLEAN DEFAULT '0'
+        )
+    ");
+}
+
+function version_67(PDO $pdo)
+{
+    $pdo->exec("
+        CREATE TABLE plugin_schema_versions (
+            plugin VARCHAR(80) NOT NULL PRIMARY KEY,
+            version INTEGER NOT NULL DEFAULT 0
+        )
+    ");
+}
+
+function version_66(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE swimlanes ADD COLUMN description TEXT");
+}
+
+function version_65(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE users ADD COLUMN gitlab_id INTEGER");
+}
+
+function version_64(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE projects ADD COLUMN start_date VARCHAR(10) DEFAULT ''");
+    $pdo->exec("ALTER TABLE projects ADD COLUMN end_date VARCHAR(10) DEFAULT ''");
+}
+
+function version_63(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE users ADD COLUMN is_project_admin BOOLEAN DEFAULT '0'");
+}
+
+function version_62(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE users ADD COLUMN nb_failed_login INTEGER DEFAULT 0");
+    $pdo->exec("ALTER TABLE users ADD COLUMN lock_expiration_date INTEGER DEFAULT 0");
+}
+
+function version_61(PDO $pdo)
+{
+    $pdo->exec("INSERT INTO settings VALUES ('subtask_time_tracking', '1')");
+    $pdo->exec("INSERT INTO settings VALUES ('cfd_include_closed_tasks', '1')");
+}
+
+function version_60(PDO $pdo)
+{
+    $pdo->exec("INSERT INTO settings VALUES ('default_color', 'yellow')");
+}
+
+function version_59(PDO $pdo)
+{
+    $pdo->exec("
+        CREATE TABLE project_daily_stats (
+            id SERIAL PRIMARY KEY,
+            day CHAR(10) NOT NULL,
+            project_id INTEGER NOT NULL,
+            avg_lead_time INTEGER NOT NULL DEFAULT 0,
+            avg_cycle_time INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    ");
+
+    $pdo->exec('CREATE UNIQUE INDEX project_daily_stats_idx ON project_daily_stats(day, project_id)');
+
+    $pdo->exec('ALTER TABLE project_daily_summaries RENAME TO project_daily_column_stats');
+}
+
+function version_58(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE project_integrations ADD COLUMN slack_webhook_channel VARCHAR(255) DEFAULT ''");
+    $pdo->exec("INSERT INTO settings VALUES ('integration_slack_webhook_channel', '')");
+}
+
+function version_57(PDO $pdo)
+{
+    $pdo->exec('ALTER TABLE users DROP COLUMN "default_project_id"');
+}
+
+function version_56(PDO $pdo)
+{
+    $pdo->exec('DELETE FROM "settings" WHERE "option"=\'subtask_time_tracking\'');
+}
+
+function version_55(PDO $pdo)
+{
+    $pdo->exec('ALTER TABLE comments DROP CONSTRAINT IF EXISTS comments_user_id_fkey');
+    $pdo->exec("ALTER TABLE comments ALTER COLUMN task_id SET NOT NULL");
+    $pdo->exec("ALTER TABLE comments ALTER COLUMN user_id SET DEFAULT 0");
+    $pdo->exec('ALTER TABLE comments RENAME COLUMN "date" TO "date_creation"');
+    $pdo->exec("ALTER TABLE comments ALTER COLUMN date_creation SET NOT NULL");
+}
+
+function version_54(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE project_has_categories ALTER COLUMN project_id SET NOT NULL");
+    $pdo->exec("ALTER TABLE project_has_categories ALTER COLUMN name SET NOT NULL");
+
+    $pdo->exec("ALTER TABLE actions ALTER COLUMN project_id SET NOT NULL");
+    $pdo->exec("ALTER TABLE actions ALTER COLUMN event_name SET NOT NULL");
+    $pdo->exec("ALTER TABLE actions ALTER COLUMN action_name SET NOT NULL");
+
+    $pdo->exec("ALTER TABLE action_has_params ALTER COLUMN action_id SET NOT NULL");
+    $pdo->exec("ALTER TABLE action_has_params ALTER COLUMN name SET NOT NULL");
+    $pdo->exec("ALTER TABLE action_has_params ALTER COLUMN value SET NOT NULL");
+
+    $pdo->exec("ALTER TABLE files ALTER COLUMN name SET NOT NULL");
+    $pdo->exec("ALTER TABLE files ALTER COLUMN task_id SET NOT NULL");
+
+    $pdo->exec("ALTER TABLE subtasks ALTER COLUMN title SET NOT NULL");
+
+    $pdo->exec("ALTER TABLE tasks ALTER COLUMN title SET NOT NULL");
+    $pdo->exec("ALTER TABLE tasks ALTER COLUMN project_id SET NOT NULL");
+    $pdo->exec("ALTER TABLE tasks ALTER COLUMN column_id SET NOT NULL");
+
+    $pdo->exec("ALTER TABLE columns ALTER COLUMN title SET NOT NULL");
+    $pdo->exec("ALTER TABLE columns ALTER COLUMN project_id SET NOT NULL");
+
+    $pdo->exec("ALTER TABLE project_has_users ALTER COLUMN project_id SET NOT NULL");
+    $pdo->exec("ALTER TABLE project_has_users ALTER COLUMN user_id SET NOT NULL");
+
+    $pdo->exec("ALTER TABLE projects ALTER COLUMN name SET NOT NULL");
+
+    $pdo->exec("ALTER TABLE users ALTER COLUMN username SET NOT NULL");
+
+    $pdo->exec("ALTER TABLE user_has_notifications ALTER COLUMN user_id SET NOT NULL");
+    $pdo->exec("ALTER TABLE user_has_notifications ALTER COLUMN user_id SET NOT NULL");
+}
+
+function version_53(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE users ADD COLUMN notifications_filter INTEGER DEFAULT 4");
+}
+
+function version_52(PDO $pdo)
+{
+    $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
+    $rq->execute(array('webhook_url', ''));
+
+    $pdo->exec("DELETE FROM settings WHERE option='webhook_url_task_creation'");
+    $pdo->exec("DELETE FROM settings WHERE option='webhook_url_task_modification'");
+}
+
+function version_51(PDO $pdo)
+{
+    $pdo->exec("ALTER TABLE users ADD COLUMN token VARCHAR(255) DEFAULT ''");
+}
+
+function version_50(PDO $pdo)
+{
+    $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
+    $rq->execute(array('calendar_user_subtasks_time_tracking', 0));
+    $rq->execute(array('calendar_user_tasks', 'date_started'));
+    $rq->execute(array('calendar_project_tasks', 'date_started'));
+
+    $pdo->exec("DELETE FROM settings WHERE option='subtask_forecast'");
+}
+
+function version_49(PDO $pdo)
+{
+    $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
+    $rq->execute(array('integration_jabber', '0'));
+    $rq->execute(array('integration_jabber_server', ''));
+    $rq->execute(array('integration_jabber_domain', ''));
+    $rq->execute(array('integration_jabber_username', ''));
+    $rq->execute(array('integration_jabber_password', ''));
+    $rq->execute(array('integration_jabber_nickname', 'kanboard'));
+    $rq->execute(array('integration_jabber_room', ''));
+
+    $pdo->exec("ALTER TABLE project_integrations ADD COLUMN jabber INTEGER DEFAULT '0'");
+    $pdo->exec("ALTER TABLE project_integrations ADD COLUMN jabber_server VARCHAR(255) DEFAULT ''");
+    $pdo->exec("ALTER TABLE project_integrations ADD COLUMN jabber_domain VARCHAR(255) DEFAULT ''");
+    $pdo->exec("ALTER TABLE project_integrations ADD COLUMN jabber_username VARCHAR(255) DEFAULT ''");
+    $pdo->exec("ALTER TABLE project_integrations ADD COLUMN jabber_password VARCHAR(255) DEFAULT ''");
+    $pdo->exec("ALTER TABLE project_integrations ADD COLUMN jabber_nickname VARCHAR(255) DEFAULT 'kanboard'");
+    $pdo->exec("ALTER TABLE project_integrations ADD COLUMN jabber_room VARCHAR(255) DEFAULT ''");
+}
+
+function version_48(PDO $pdo)
+{
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN recurrence_status INTEGER NOT NULL DEFAULT 0');
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN recurrence_trigger INTEGER NOT NULL DEFAULT 0');
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN recurrence_factor INTEGER NOT NULL DEFAULT 0');
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN recurrence_timeframe INTEGER NOT NULL DEFAULT 0');
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN recurrence_basedate INTEGER NOT NULL DEFAULT 0');
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN recurrence_parent INTEGER');
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN recurrence_child INTEGER');
+}
+
+function version_47(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE projects ADD COLUMN identifier VARCHAR(50) DEFAULT ''");
 }
 
-function version_46($pdo)
+function version_46(PDO $pdo)
 {
     $pdo->exec("
         CREATE TABLE project_integrations (
@@ -30,36 +519,36 @@ function version_46($pdo)
     ");
 }
 
-function version_45($pdo)
+function version_45(PDO $pdo)
 {
     $pdo->exec('ALTER TABLE project_daily_summaries ADD COLUMN score INTEGER NOT NULL DEFAULT 0');
 }
 
-function version_44($pdo)
+function version_44(PDO $pdo)
 {
     $pdo->exec('ALTER TABLE project_has_categories ADD COLUMN description TEXT');
 }
 
-function version_43($pdo)
+function version_43(PDO $pdo)
 {
     $pdo->exec('ALTER TABLE files ADD COLUMN "date" INTEGER NOT NULL DEFAULT 0');
     $pdo->exec('ALTER TABLE files ADD COLUMN "user_id" INTEGER NOT NULL DEFAULT 0');
     $pdo->exec('ALTER TABLE files ADD COLUMN "size" INTEGER NOT NULL DEFAULT 0');
 }
 
-function version_42($pdo)
+function version_42(PDO $pdo)
 {
     $pdo->exec('ALTER TABLE users ADD COLUMN twofactor_activated BOOLEAN DEFAULT \'0\'');
     $pdo->exec('ALTER TABLE users ADD COLUMN twofactor_secret CHAR(16)');
 }
 
-function version_41($pdo)
+function version_41(PDO $pdo)
 {
     $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
     $rq->execute(array('integration_gravatar', '0'));
 }
 
-function version_40($pdo)
+function version_40(PDO $pdo)
 {
     $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
     $rq->execute(array('integration_hipchat', '0'));
@@ -68,14 +557,14 @@ function version_40($pdo)
     $rq->execute(array('integration_hipchat_room_token', ''));
 }
 
-function version_39($pdo)
+function version_39(PDO $pdo)
 {
     $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
     $rq->execute(array('integration_slack_webhook', '0'));
     $rq->execute(array('integration_slack_webhook_url', ''));
 }
 
-function version_38($pdo)
+function version_38(PDO $pdo)
 {
     $pdo->exec('CREATE TABLE currencies ("currency" CHAR(3) NOT NULL UNIQUE, "rate" REAL DEFAULT 0)');
 
@@ -83,7 +572,7 @@ function version_38($pdo)
     $rq->execute(array('application_currency', 'USD'));
 }
 
-function version_37($pdo)
+function version_37(PDO $pdo)
 {
     $pdo->exec('CREATE TABLE transitions (
         "id" SERIAL PRIMARY KEY,
@@ -106,90 +595,24 @@ function version_37($pdo)
     $pdo->exec("CREATE INDEX transitions_user_index ON transitions(user_id)");
 }
 
-function version_36($pdo)
+function version_36(PDO $pdo)
 {
     $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
     $rq->execute(array('subtask_forecast', '0'));
 }
 
-function version_35($pdo)
+function version_35(PDO $pdo)
 {
     $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
     $rq->execute(array('application_stylesheet', ''));
 }
 
-function version_34($pdo)
+function version_34(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE subtask_time_tracking ADD COLUMN time_spent REAL DEFAULT 0");
 }
 
-function version_33($pdo)
-{
-    $pdo->exec('CREATE TABLE budget_lines (
-        "id" SERIAL PRIMARY KEY,
-        "project_id" INTEGER NOT NULL,
-        "amount" REAL NOT NULL,
-        "date" VARCHAR(10) NOT NULL,
-        "comment" TEXT,
-        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
-    )');
-}
-
-function version_32($pdo)
-{
-    $pdo->exec('CREATE TABLE timetable_day (
-        "id" SERIAL PRIMARY KEY,
-        "user_id" INTEGER NOT NULL,
-        "start" VARCHAR(5) NOT NULL,
-        "end" VARCHAR(5) NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-    )');
-
-    $pdo->exec('CREATE TABLE timetable_week (
-        "id" SERIAL PRIMARY KEY,
-        "user_id" INTEGER NOT NULL,
-        "day" INTEGER NOT NULL,
-        "start" VARCHAR(5) NOT NULL,
-        "end" VARCHAR(5) NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-    )');
-
-    $pdo->exec('CREATE TABLE timetable_off (
-        "id" SERIAL PRIMARY KEY,
-        "user_id" INTEGER NOT NULL,
-        "date" VARCHAR(10) NOT NULL,
-        "all_day" BOOLEAN DEFAULT \'0\',
-        "start" VARCHAR(5) DEFAULT 0,
-        "end" VARCHAR(5) DEFAULT 0,
-        "comment" TEXT,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-    )');
-
-    $pdo->exec('CREATE TABLE timetable_extra (
-        "id" SERIAL PRIMARY KEY,
-        "user_id" INTEGER NOT NULL,
-        "date" VARCHAR(10) NOT NULL,
-        "all_day" BOOLEAN DEFAULT \'0\',
-        "start" VARCHAR(5) DEFAULT 0,
-        "end" VARCHAR(5) DEFAULT 0,
-        "comment" TEXT,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-    )');
-}
-
-function version_31($pdo)
-{
-    $pdo->exec("CREATE TABLE hourly_rates (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER NOT NULL,
-        rate REAL DEFAULT 0,
-        date_effective INTEGER NOT NULL,
-        currency CHAR(3) NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-    )");
-}
-
-function version_30($pdo)
+function version_30(PDO $pdo)
 {
     $pdo->exec('ALTER TABLE subtasks ADD COLUMN position INTEGER DEFAULT 1');
 
@@ -201,7 +624,6 @@ function version_30($pdo)
     $rq->execute();
 
     foreach ($rq->fetchAll(PDO::FETCH_ASSOC) as $subtask) {
-
         if ($task_id != $subtask['task_id']) {
             $position = 1;
             $task_id = $subtask['task_id'];
@@ -212,18 +634,18 @@ function version_30($pdo)
     }
 }
 
-function version_29($pdo)
+function version_29(PDO $pdo)
 {
     $pdo->exec('ALTER TABLE task_has_files RENAME TO files');
     $pdo->exec('ALTER TABLE task_has_subtasks RENAME TO subtasks');
 }
 
-function version_28($pdo)
+function version_28(PDO $pdo)
 {
     $pdo->exec('ALTER TABLE projects ADD COLUMN description TEXT');
 }
 
-function version_27($pdo)
+function version_27(PDO $pdo)
 {
     $pdo->exec('CREATE TABLE links (
         "id" SERIAL PRIMARY KEY,
@@ -259,15 +681,15 @@ function version_27($pdo)
     $rq->execute(array('is fixed by', 10));
 }
 
-function version_26($pdo)
+function version_26(PDO $pdo)
 {
-	$pdo->exec('ALTER TABLE tasks ADD COLUMN date_moved INT DEFAULT 0');
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN date_moved INT DEFAULT 0');
 
-	/* Update tasks.date_moved from project_activities table if tasks.date_moved = null or 0.
-	 * We take max project_activities.date_creation where event_name in task.create','task.move.column
-	 * since creation date is always less than task moves
-	 */
-	$pdo->exec("UPDATE tasks
+    /* Update tasks.date_moved from project_activities table if tasks.date_moved = null or 0.
+     * We take max project_activities.date_creation where event_name in task.create','task.move.column
+     * since creation date is always less than task moves
+     */
+    $pdo->exec("UPDATE tasks
                 SET date_moved = (
                     SELECT md
                     FROM (
@@ -292,12 +714,12 @@ function version_26($pdo)
     $pdo->exec("UPDATE tasks SET date_moved = date_creation WHERE date_moved IS NULL OR date_moved = 0");
 }
 
-function version_25($pdo)
+function version_25(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE users ADD COLUMN disable_login_form BOOLEAN DEFAULT '0'");
 }
 
-function version_24($pdo)
+function version_24(PDO $pdo)
 {
     $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
     $rq->execute(array('subtask_restriction', '0'));
@@ -316,18 +738,18 @@ function version_24($pdo)
     ');
 }
 
-function version_23($pdo)
+function version_23(PDO $pdo)
 {
     $pdo->exec('ALTER TABLE columns ADD COLUMN description TEXT');
 }
 
-function version_22($pdo)
+function version_22(PDO $pdo)
 {
     $pdo->exec('ALTER TABLE users ADD COLUMN timezone VARCHAR(50)');
     $pdo->exec('ALTER TABLE users ADD COLUMN language CHAR(5)');
 }
 
-function version_21($pdo)
+function version_21(PDO $pdo)
 {
     // Avoid some full table scans
     $pdo->exec('CREATE INDEX users_admin_idx ON users(is_admin)');
@@ -351,13 +773,13 @@ function version_21($pdo)
     }
 }
 
-function version_20($pdo)
+function version_20(PDO $pdo)
 {
     $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
     $rq->execute(array('project_categories', ''));
 }
 
-function version_19($pdo)
+function version_19(PDO $pdo)
 {
     $pdo->exec("
         CREATE TABLE swimlanes (
@@ -376,17 +798,17 @@ function version_19($pdo)
     $pdo->exec("ALTER TABLE projects ADD COLUMN show_default_swimlane BOOLEAN DEFAULT '1'");
 }
 
-function version_18($pdo)
+function version_18(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE project_has_users ADD COLUMN is_owner BOOLEAN DEFAULT '0'");
 }
 
-function version_17($pdo)
+function version_17(PDO $pdo)
 {
     $pdo->exec('ALTER TABLE tasks ALTER COLUMN title SET NOT NULL');
 }
 
-function version_16($pdo)
+function version_16(PDO $pdo)
 {
     $pdo->exec("
         CREATE TABLE project_daily_summaries (
@@ -403,12 +825,12 @@ function version_16($pdo)
     $pdo->exec('CREATE UNIQUE INDEX project_daily_column_stats_idx ON project_daily_summaries(day, project_id, column_id)');
 }
 
-function version_15($pdo)
+function version_15(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE projects ADD COLUMN is_everybody_allowed BOOLEAN DEFAULT '0'");
 }
 
-function version_14($pdo)
+function version_14(PDO $pdo)
 {
     $pdo->exec("
         CREATE TABLE project_activities (
@@ -430,7 +852,7 @@ function version_14($pdo)
     $pdo->exec('DROP TABLE subtask_has_events');
 }
 
-function version_13($pdo)
+function version_13(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE tasks ADD COLUMN date_started INTEGER");
     $pdo->exec("ALTER TABLE tasks ADD COLUMN time_spent FLOAT DEFAULT 0");
@@ -440,18 +862,18 @@ function version_13($pdo)
     $pdo->exec("ALTER TABLE task_has_subtasks ALTER COLUMN time_spent TYPE FLOAT");
 }
 
-function version_12($pdo)
+function version_12(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE projects ADD COLUMN is_private BOOLEAN DEFAULT '0'");
 }
 
-function version_11($pdo)
+function version_11(PDO $pdo)
 {
     $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
     $rq->execute(array('application_date_format', 'm/d/Y'));
 }
 
-function version_10($pdo)
+function version_10(PDO $pdo)
 {
     $pdo->exec("
         CREATE TABLE settings (
@@ -481,7 +903,7 @@ function version_10($pdo)
     $pdo->exec('DROP TABLE config');
 }
 
-function version_9($pdo)
+function version_9(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE tasks ADD COLUMN reference VARCHAR(50) DEFAULT ''");
     $pdo->exec("ALTER TABLE comments ADD COLUMN reference VARCHAR(50) DEFAULT ''");
@@ -490,17 +912,17 @@ function version_9($pdo)
     $pdo->exec('CREATE INDEX comments_reference_idx ON comments(reference)');
 }
 
-function version_8($pdo)
+function version_8(PDO $pdo)
 {
     $pdo->exec('CREATE UNIQUE INDEX users_username_idx ON users(username)');
 }
 
-function version_7($pdo)
+function version_7(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE config ADD COLUMN default_columns VARCHAR(255) DEFAULT ''");
 }
 
-function version_6($pdo)
+function version_6(PDO $pdo)
 {
     $pdo->exec("
         CREATE TABLE task_has_events (
@@ -552,12 +974,12 @@ function version_6($pdo)
     ");
 }
 
-function version_5($pdo)
+function version_5(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE projects ADD COLUMN is_public BOOLEAN DEFAULT '0'");
 }
 
-function version_4($pdo)
+function version_4(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE users ADD COLUMN notifications_enabled BOOLEAN DEFAULT '0'");
 
@@ -572,19 +994,19 @@ function version_4($pdo)
     ");
 }
 
-function version_3($pdo)
+function version_3(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE config ADD COLUMN webhooks_url_task_modification VARCHAR(255)");
     $pdo->exec("ALTER TABLE config ADD COLUMN webhooks_url_task_creation VARCHAR(255)");
 }
 
-function version_2($pdo)
+function version_2(PDO $pdo)
 {
     $pdo->exec("ALTER TABLE tasks ADD COLUMN creator_id INTEGER DEFAULT 0");
     $pdo->exec("ALTER TABLE tasks ADD COLUMN date_modification INTEGER DEFAULT 0");
 }
 
-function version_1($pdo)
+function version_1(PDO $pdo)
 {
     $pdo->exec("
         CREATE TABLE config (
@@ -610,7 +1032,7 @@ function version_1($pdo)
         CREATE TABLE remember_me (
             id SERIAL PRIMARY KEY,
             user_id INTEGER,
-            ip VARCHAR(40),
+            ip VARCHAR(45),
             user_agent VARCHAR(255),
             token VARCHAR(255),
             sequence VARCHAR(255),
@@ -623,7 +1045,7 @@ function version_1($pdo)
             id SERIAL PRIMARY KEY,
             auth_type VARCHAR(25),
             user_id INTEGER,
-            ip VARCHAR(40),
+            ip VARCHAR(45),
             user_agent VARCHAR(255),
             date_creation INTEGER,
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -739,6 +1161,6 @@ function version_1($pdo)
     $pdo->exec("
         INSERT INTO config
         (webhooks_token, api_token)
-        VALUES ('".Security::generateToken()."', '".Security::generateToken()."')
+        VALUES ('".Token::getToken()."', '".Token::getToken()."')
     ");
 }

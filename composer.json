@@ -1,28 +1,52 @@
 {
+    "name": "fguillot/kanboard",
+    "type": "project",
+    "description": "Kanban project management software",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Frédéric Guillot"
+        }
+    ],
+    "config": {
+        "preferred-install": "dist",
+        "optimize-autoloader": true,
+        "discard-changes": true
+    },
     "require" : {
-        "php": ">=5.3",
+        "php" : ">=5.3",
+        "ext-gd" : "*",
         "ext-mbstring" : "*",
-        "ext-gd": "*",
-        "fguillot/simple-validator" : "dev-master",
-        "swiftmailer/swiftmailer" : "@stable",
-        "fguillot/json-rpc" : "0.0.1",
-        "fguillot/picodb" : "dev-master",
-        "erusev/parsedown" : "1.5.1",
-        "lusitanian/oauth" : "0.3.5",
+        "ext-hash" : "*",
+        "ext-openssl" : "*",
+        "ext-json" : "*",
+        "ext-ctype" : "*",
+        "ext-filter" : "*",
+        "ext-session" : "*",
+        "christian-riesen/otp" : "1.4",
+        "eluceo/ical": "0.8.0",
+        "erusev/parsedown" : "1.6.0",
+        "fguillot/json-rpc" : "1.0.3",
+        "fguillot/picodb" : "1.0.4",
+        "fguillot/simpleLogger" : "1.0.0",
+        "fguillot/simple-validator" : "1.0.0",
+        "paragonie/random_compat": "@stable",
         "pimple/pimple" : "~3.0",
-        "symfony/console" : "@stable",
-        "symfony/event-dispatcher" : "~2.6",
-        "fguillot/simpleLogger" : "0.0.1",
-        "christian-riesen/otp": "1.4",
-        "nickcernis/html-to-markdown": "2.2.1"
+        "ramsey/array_column": "@stable",
+        "swiftmailer/swiftmailer" : "~5.4",
+        "symfony/console" : "~2.7",
+        "symfony/event-dispatcher" : "~2.7",
+        "gregwar/captcha": "1.*"
     },
     "autoload" : {
-        "psr-0" : {
-            "" : "app/"
+        "classmap" : ["app/"],
+        "psr-4" : {
+            "Kanboard\\Plugin\\": "plugins/",
+            "Kanboard\\" : "app/"
         },
         "files" : [
             "app/functions.php",
-            "app/Libs/password.php"
+            "app/Library/password.php"
         ]
     },
     "require-dev" : {

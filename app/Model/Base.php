@@ -1,100 +1,17 @@
 <?php
 
-namespace Model;
+namespace Kanboard\Model;
 
-use Pimple\Container;
+use PicoDb\Database;
 
 /**
  * Base model class
  *
  * @package  model
  * @author   Frederic Guillot
- *
- * @property \Core\Session                 $session
- * @property \Core\Template                $template
- * @property \Model\Acl                    $acl
- * @property \Model\Action                 $action
- * @property \Model\Authentication         $authentication
- * @property \Model\Board                  $board
- * @property \Model\Budget                 $budget
- * @property \Model\Category               $category
- * @property \Model\Comment                $comment
- * @property \Model\CommentHistory         $commentHistory
- * @property \Model\Color                  $color
- * @property \Model\Config                 $config
- * @property \Model\DateParser             $dateParser
- * @property \Model\File                   $file
- * @property \Model\Helper                 $helper
- * @property \Model\LastLogin              $lastLogin
- * @property \Model\Link                   $link
- * @property \Model\Notification           $notification
- * @property \Model\Project                $project
- * @property \Model\ProjectDuplication     $projectDuplication
- * @property \Model\ProjectPermission      $projectPermission
- * @property \Model\Subtask                $subtask
- * @property \Model\SubtaskHistory         $subtaskHistory
- * @property \Model\Swimlane               $swimlane
- * @property \Model\Task                   $task
- * @property \Model\TaskCreation           $taskCreation
- * @property \Model\TaskDuplication        $taskDuplication
- * @property \Model\TaskExport             $taskExport
- * @property \Model\TaskFinder             $taskFinder
- * @property \Model\TaskHistory            $taskHistory
- * @property \Model\TaskLink               $taskLink
- * @property \Model\TaskPosition           $taskPosition
- * @property \Model\TaskValidator          $taskValidator
- * @property \Model\Timetable              $timetable
- * @property \Model\TimetableDay           $timetableDay
- * @property \Model\TimetableExtra         $timetableExtra
- * @property \Model\TimetableOff           $timetableOfff
- * @property \Model\TimetableWeek          $timetableWeek
- * @property \Model\SubtaskTimeTracking    $subtaskTimeTracking
- * @property \Model\User                   $user
- * @property \Model\UserSession            $userSession
- * @property \Model\Webhook                $webhook
  */
-abstract class Base
+abstract class Base extends \Kanboard\Core\Base
 {
-    /**
-     * Database instance
-     *
-     * @access protected
-     * @var \PicoDb\Database
-     */
-    protected $db;
-
-    /**
-     * Container instance
-     *
-     * @access protected
-     * @var \Pimple\Container
-     */
-    protected $container;
-
-    /**
-     * Constructor
-     *
-     * @access public
-     * @param  \Pimple\Container   $container
-     */
-    public function __construct(Container $container)
-    {
-        $this->container = $container;
-        $this->db = $this->container['db'];
-    }
-
-    /**
-     * Load automatically models
-     *
-     * @access public
-     * @param  string $name Model name
-     * @return mixed
-     */
-    public function __get($name)
-    {
-        return $this->container[$name];
-    }
-
     /**
      * Save a record in the database
      *
@@ -105,13 +22,13 @@ abstract class Base
      */
     public function persist($table, array $values)
     {
-        return $this->db->transaction(function($db) use ($table, $values) {
+        return $this->db->transaction(function (Database $db) use ($table, $values) {
 
             if (! $db->table($table)->save($values)) {
                 return false;
             }
 
-            return (int) $db->getConnection()->getLastId();
+            return (int) $db->getLastId();
         });
     }
 
@@ -125,14 +42,30 @@ abstract class Base
     public function removeFields(array &$values, array $keys)
     {
         foreach ($keys as $key) {
-            if (isset($values[$key])) {
+            if (array_key_exists($key, $values)) {
                 unset($values[$key]);
             }
         }
     }
 
     /**
-     * Force some fields to be at 0 if empty
+     * Remove keys from an array if empty
+     *
+     * @access public
+     * @param  array     $values    Input array
+     * @param  string[]  $keys      List of keys to remove
+     */
+    public function removeEmptyFields(array &$values, array $keys)
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $values) && empty($values[$key])) {
+                unset($values[$key]);
+            }
+        }
+    }
+
+    /**
+     * Force fields to be at 0 if empty
      *
      * @access public
      * @param  array        $values    Input array
@@ -161,5 +94,64 @@ abstract class Base
                 $values[$key] = (int) $values[$key];
             }
         }
+    }
+
+    /**
+     * Force some fields to be null if empty
+     *
+     * @access public
+     * @param  array        $values    Input array
+     * @param  string[]     $keys      List of keys
+     */
+    public function convertNullFields(array &$values, array $keys)
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $values) && empty($values[$key])) {
+                $values[$key] = null;
+            }
+        }
+    }
+
+    /**
+     * Build SQL condition for a given time range
+     *
+     * @access protected
+     * @param  string   $start_time     Start timestamp
+     * @param  string   $end_time       End timestamp
+     * @param  string   $start_column   Start column name
+     * @param  string   $end_column     End column name
+     * @return string
+     */
+    protected function getCalendarCondition($start_time, $end_time, $start_column, $end_column)
+    {
+        $start_column = $this->db->escapeIdentifier($start_column);
+        $end_column = $this->db->escapeIdentifier($end_column);
+
+        $conditions = array(
+            "($start_column >= '$start_time' AND $start_column <= '$end_time')",
+            "($start_column <= '$start_time' AND $end_column >= '$start_time')",
+            "($start_column <= '$start_time' AND ($end_column = '0' OR $end_column IS NULL))",
+        );
+
+        return $start_column.' IS NOT NULL AND '.$start_column.' > 0 AND ('.implode(' OR ', $conditions).')';
+    }
+
+    /**
+     * Group a collection of records by a column
+     *
+     * @access public
+     * @param  array   $collection
+     * @param  string  $column
+     * @return array
+     */
+    public function groupByColumn(array $collection, $column)
+    {
+        $result = array();
+
+        foreach ($collection as $item) {
+            $result[$item[$column]][] = $item;
+        }
+
+        return $result;
     }
 }

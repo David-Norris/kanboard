@@ -1,6 +1,6 @@
 <?php
 
-namespace Model;
+namespace Kanboard\Model;
 
 /**
  * Color model
@@ -52,7 +52,90 @@ class Color extends Base
             'background' => 'rgb(238, 238, 238)',
             'border' => 'rgb(204, 204, 204)',
         ),
+        'brown' => array(
+            'name' => 'Brown',
+            'background' => '#d7ccc8',
+            'border' => '#4e342e',
+        ),
+        'deep_orange' => array(
+            'name' => 'Deep Orange',
+            'background' => '#ffab91',
+            'border' => '#e64a19',
+        ),
+        'dark_grey' => array(
+            'name' => 'Dark Grey',
+            'background' => '#cfd8dc',
+            'border' => '#455a64',
+        ),
+        'pink' => array(
+            'name' => 'Pink',
+            'background' => '#f48fb1',
+            'border' => '#d81b60',
+        ),
+        'teal' => array(
+            'name' => 'Teal',
+            'background' => '#80cbc4',
+            'border' => '#00695c',
+        ),
+        'cyan' => array(
+            'name' => 'Cyan',
+            'background' => '#b2ebf2',
+            'border' => '#00bcd4',
+        ),
+        'lime' => array(
+            'name' => 'Lime',
+            'background' => '#e6ee9c',
+            'border' => '#afb42b',
+        ),
+        'light_green' => array(
+            'name' => 'Light Green',
+            'background' => '#dcedc8',
+            'border' => '#689f38',
+        ),
+        'amber' => array(
+            'name' => 'Amber',
+            'background' => '#ffe082',
+            'border' => '#ffa000',
+        ),
     );
+
+    /**
+     * Find a color id from the name or the id
+     *
+     * @access public
+     * @param  string  $color
+     * @return string
+     */
+    public function find($color)
+    {
+        $color = strtolower($color);
+
+        foreach ($this->default_colors as $color_id => $params) {
+            if ($color_id === $color) {
+                return $color_id;
+            } elseif ($color === strtolower($params['name'])) {
+                return $color_id;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Get color properties
+     *
+     * @access public
+     * @param  string  $color_id
+     * @return array
+     */
+    public function getColorProperties($color_id)
+    {
+        if (isset($this->default_colors[$color_id])) {
+            return $this->default_colors[$color_id];
+        }
+
+        return $this->default_colors[$this->getDefaultColor()];
+    }
 
     /**
      * Get available colors
@@ -64,15 +147,11 @@ class Color extends Base
     {
         $listing = $prepend ? array('' => t('All colors')) : array();
 
-        return $listing + array(
-            'yellow' => t('Yellow'),
-            'blue' => t('Blue'),
-            'green' => t('Green'),
-            'purple' => t('Purple'),
-            'red' => t('Red'),
-            'orange' => t('Orange'),
-            'grey' => t('Grey'),
-        );
+        foreach ($this->default_colors as $color_id => $color) {
+            $listing[$color_id] = t($color['name']);
+        }
+
+        return $listing;
     }
 
     /**
@@ -83,7 +162,18 @@ class Color extends Base
      */
     public function getDefaultColor()
     {
-        return 'yellow'; // TODO: make this parameter configurable
+        return $this->config->get('default_color', 'yellow');
+    }
+
+    /**
+     * Get the default colors
+     *
+     * @access public
+     * @return array
+     */
+    public function getDefaultColors()
+    {
+        return $this->default_colors;
     }
 
     /**
@@ -95,11 +185,8 @@ class Color extends Base
      */
     public function getBorderColor($color_id)
     {
-        if (isset($this->default_colors[$color_id])) {
-            return $this->default_colors[$color_id]['border'];
-        }
-
-        return $this->default_colors[$this->getDefaultColor()]['border'];
+        $color = $this->getColorProperties($color_id);
+        return $color['border'];
     }
 
     /**
@@ -111,11 +198,8 @@ class Color extends Base
      */
     public function getBackgroundColor($color_id)
     {
-        if (isset($this->default_colors[$color_id])) {
-            return $this->default_colors[$color_id]['background'];
-        }
-
-        return $this->default_colors[$this->getDefaultColor()]['background'];
+        $color = $this->getColorProperties($color_id);
+        return $color['background'];
     }
 
     /**
@@ -129,11 +213,11 @@ class Color extends Base
         $buffer = '';
 
         foreach ($this->default_colors as $color => $values) {
-            $buffer .= 'td.color-'.$color.',';
             $buffer .= 'div.color-'.$color.' {';
             $buffer .= 'background-color: '.$values['background'].';';
             $buffer .= 'border-color: '.$values['border'];
             $buffer .= '}';
+            $buffer .= 'td.color-'.$color.' { background-color: '.$values['background'].'}';
         }
 
         return $buffer;

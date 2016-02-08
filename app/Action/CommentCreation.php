@@ -1,8 +1,6 @@
 <?php
 
-namespace Action;
-
-use Integration\GithubWebhook;
+namespace Kanboard\Action;
 
 /**
  * Create automatically a comment from a webhook
@@ -13,6 +11,17 @@ use Integration\GithubWebhook;
 class CommentCreation extends Base
 {
     /**
+     * Get automatic action description
+     *
+     * @access public
+     * @return string
+     */
+    public function getDescription()
+    {
+        return t('Create a comment from an external provider');
+    }
+
+    /**
      * Get the list of compatible events
      *
      * @access public
@@ -20,9 +29,7 @@ class CommentCreation extends Base
      */
     public function getCompatibleEvents()
     {
-        return array(
-            GithubWebhook::EVENT_ISSUE_COMMENT,
-        );
+        return array();
     }
 
     /**
@@ -45,9 +52,6 @@ class CommentCreation extends Base
     public function getEventRequiredParameters()
     {
         return array(
-            'reference',
-            'comment',
-            'user_id',
             'task_id',
         );
     }
@@ -62,10 +66,10 @@ class CommentCreation extends Base
     public function doAction(array $data)
     {
         return (bool) $this->comment->create(array(
-            'reference' => $data['reference'],
+            'reference' => isset($data['reference']) ? $data['reference'] : '',
             'comment' => $data['comment'],
             'task_id' => $data['task_id'],
-            'user_id' => $data['user_id'],
+            'user_id' => isset($data['user_id']) && $this->projectPermission->isAssignable($this->getProjectId(), $data['user_id']) ? $data['user_id'] : 0,
         ));
     }
 
@@ -78,6 +82,6 @@ class CommentCreation extends Base
      */
     public function hasRequiredCondition(array $data)
     {
-        return true;
+        return ! empty($data['comment']);
     }
 }

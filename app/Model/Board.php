@@ -1,9 +1,8 @@
 <?php
 
-namespace Model;
+namespace Kanboard\Model;
 
-use SimpleValidator\Validator;
-use SimpleValidator\Validators;
+use PicoDb\Database;
 
 /**
  * Board model
@@ -43,7 +42,6 @@ class Board extends Base
         $columns = array();
 
         foreach ($column_names as $column_name) {
-
             $column_name = trim($column_name);
 
             if (! empty($column_name)) {
@@ -67,7 +65,6 @@ class Board extends Base
         $position = 0;
 
         foreach ($columns as $column) {
-
             $values = array(
                 'title' => $column['title'],
                 'position' => ++$position,
@@ -120,7 +117,7 @@ class Board extends Base
             'title' => $title,
             'task_limit' => intval($task_limit),
             'position' => $this->getLastColumnPosition($project_id) + 1,
-        	'description' => $description,
+            'description' => $description,
         );
 
         return $this->persist(self::TABLE, $values);
@@ -175,7 +172,7 @@ class Board extends Base
      */
     public function saveColumnPositions(array $columns)
     {
-        return $this->db->transaction(function ($db) use ($columns) {
+        return $this->db->transaction(function (Database $db) use ($columns) {
 
             foreach ($columns as $column_id => $position) {
                 if (! $db->table(Board::TABLE)->eq('id', $column_id)->update(array('position' => $position))) {
@@ -199,7 +196,6 @@ class Board extends Base
         $positions = array_flip($columns);
 
         if (isset($columns[$column_id]) && $columns[$column_id] < count($columns)) {
-
             $position = ++$columns[$column_id];
             $columns[$positions[$position]]--;
 
@@ -223,7 +219,6 @@ class Board extends Base
         $positions = array_flip($columns);
 
         if (isset($columns[$column_id]) && $columns[$column_id] > 1) {
-
             $position = --$columns[$column_id];
             $columns[$positions[$position]]++;
 
@@ -237,26 +232,37 @@ class Board extends Base
      * Get all tasks sorted by columns and swimlanes
      *
      * @access public
-     * @param  integer $project_id Project id
+     * @param  integer  $project_id
+     * @param  callable $callback
      * @return array
      */
-    public function getBoard($project_id)
+    public function getBoard($project_id, $callback = null)
     {
         $swimlanes = $this->swimlane->getSwimlanes($project_id);
         $columns = $this->getColumns($project_id);
         $nb_columns = count($columns);
 
         for ($i = 0, $ilen = count($swimlanes); $i < $ilen; $i++) {
-
             $swimlanes[$i]['columns'] = $columns;
             $swimlanes[$i]['nb_columns'] = $nb_columns;
             $swimlanes[$i]['nb_tasks'] = 0;
+            $swimlanes[$i]['nb_swimlanes'] = $ilen;
 
             for ($j = 0; $j < $nb_columns; $j++) {
-                $swimlanes[$i]['columns'][$j]['tasks'] = $this->taskFinder->getTasksByColumnAndSwimlane($project_id, $columns[$j]['id'], $swimlanes[$i]['id']);
+                $column_id = $columns[$j]['id'];
+                $swimlane_id = $swimlanes[$i]['id'];
+
+                if (! isset($swimlanes[0]['columns'][$j]['nb_column_tasks'])) {
+                    $swimlanes[0]['columns'][$j]['nb_column_tasks'] = 0;
+                    $swimlanes[0]['columns'][$j]['total_score'] = 0;
+                }
+
+                $swimlanes[$i]['columns'][$j]['tasks'] = $callback === null ? $this->taskFinder->getTasksByColumnAndSwimlane($project_id, $column_id, $swimlane_id) : $callback($project_id, $column_id, $swimlane_id);
                 $swimlanes[$i]['columns'][$j]['nb_tasks'] = count($swimlanes[$i]['columns'][$j]['tasks']);
                 $swimlanes[$i]['columns'][$j]['score'] = $this->getColumnSum($swimlanes[$i]['columns'][$j]['tasks'], 'score');
                 $swimlanes[$i]['nb_tasks'] += $swimlanes[$i]['columns'][$j]['nb_tasks'];
+                $swimlanes[0]['columns'][$j]['nb_column_tasks'] += $swimlanes[$i]['columns'][$j]['nb_tasks'];
+                $swimlanes[0]['columns'][$j]['total_score'] += $swimlanes[$i]['columns'][$j]['score'];
             }
         }
 
@@ -276,7 +282,7 @@ class Board extends Base
         $sum = 0;
 
         foreach ($tasks as $task) {
-            $sum += $task['score'];
+            $sum += $task[$field];
         }
 
         return $sum;
@@ -312,6 +318,18 @@ class Board extends Base
     public function getFirstColumn($project_id)
     {
         return $this->db->table(self::TABLE)->eq('project_id', $project_id)->asc('position')->findOneColumn('id');
+    }
+
+    /**
+     * Get the last column id for a given project
+     *
+     * @access public
+     * @param  integer  $project_id   Project id
+     * @return integer
+     */
+    public function getLastColumn($project_id)
+    {
+        return $this->db->table(self::TABLE)->eq('project_id', $project_id)->desc('position')->findOneColumn('id');
     }
 
     /**
@@ -365,6 +383,31 @@ class Board extends Base
     }
 
     /**
+     * Get a column id by the name
+     *
+     * @access public
+     * @param  integer  $project_id
+     * @param  string   $title
+     * @return integer
+     */
+    public function getColumnIdByTitle($project_id, $title)
+    {
+        return (int) $this->db->table(self::TABLE)->eq('project_id', $project_id)->eq('title', $title)->findOneColumn('id');
+    }
+
+    /**
+     * Get a column title by the id
+     *
+     * @access public
+     * @param  integer  $column_id
+     * @return integer
+     */
+    public function getColumnTitleById($column_id)
+    {
+        return $this->db->table(self::TABLE)->eq('id', $column_id)->findOneColumn('title');
+    }
+
+    /**
      * Get the position of the last column for a given project
      *
      * @access public
@@ -390,48 +433,5 @@ class Board extends Base
     public function removeColumn($column_id)
     {
         return $this->db->table(self::TABLE)->eq('id', $column_id)->remove();
-    }
-
-    /**
-     * Validate column modification
-     *
-     * @access public
-     * @param  array   $values           Required parameters to update a column
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validateModification(array $values)
-    {
-        $v = new Validator($values, array(
-            new Validators\Integer('task_limit', t('This value must be an integer')),
-            new Validators\Required('title', t('The title is required')),
-            new Validators\MaxLength('title', t('The maximum length is %d characters', 50), 50),
-        ));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
-    }
-
-    /**
-     * Validate column creation
-     *
-     * @access public
-     * @param  array   $values           Required parameters to save an action
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validateCreation(array $values)
-    {
-        $v = new Validator($values, array(
-            new Validators\Required('project_id', t('The project id is required')),
-            new Validators\Integer('project_id', t('This value must be an integer')),
-            new Validators\Required('title', t('The title is required')),
-            new Validators\MaxLength('title', t('The maximum length is %d characters', 50), 50),
-        ));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
     }
 }

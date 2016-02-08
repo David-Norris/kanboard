@@ -1,9 +1,6 @@
 <?php
 
-namespace Action;
-
-use Integration\GithubWebhook;
-use Integration\GitlabWebhook;
+namespace Kanboard\Action;
 
 /**
  * Create automatically a task from a webhook
@@ -14,6 +11,17 @@ use Integration\GitlabWebhook;
 class TaskCreation extends Base
 {
     /**
+     * Get automatic action description
+     *
+     * @access public
+     * @return string
+     */
+    public function getDescription()
+    {
+        return t('Create a task from an external provider');
+    }
+
+    /**
      * Get the list of compatible events
      *
      * @access public
@@ -21,10 +29,7 @@ class TaskCreation extends Base
      */
     public function getCompatibleEvents()
     {
-        return array(
-            GithubWebhook::EVENT_ISSUE_OPENED,
-            GitlabWebhook::EVENT_ISSUE_OPENED,
-        );
+        return array();
     }
 
     /**

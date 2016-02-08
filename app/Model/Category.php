@@ -1,9 +1,6 @@
 <?php
 
-namespace Model;
-
-use SimpleValidator\Validator;
-use SimpleValidator\Validators;
+namespace Kanboard\Model;
 
 /**
  * Category model
@@ -30,7 +27,7 @@ class Category extends Base
      */
     public function exists($category_id, $project_id)
     {
-        return $this->db->table(self::TABLE)->eq('id', $category_id)->eq('project_id', $project_id)->count() > 0;
+        return $this->db->table(self::TABLE)->eq('id', $category_id)->eq('project_id', $project_id)->exists();
     }
 
     /**
@@ -58,7 +55,7 @@ class Category extends Base
     }
 
     /**
-     * Get a category id by the project and the name
+     * Get a category id by the category name and project id
      *
      * @access public
      * @param  integer   $project_id      Project id
@@ -71,38 +68,6 @@ class Category extends Base
                         ->eq('project_id', $project_id)
                         ->eq('name', $category_name)
                         ->findOneColumn('id');
-    }
-
-    /**
-     * Prepare categories to be displayed on the board
-     *
-     * @access public
-     * @param  integer   $project_id
-     * @return array
-     */
-    public function getBoardCategories($project_id)
-    {
-        $descriptions = array();
-
-        $listing = array(
-            -1 => t('All categories'),
-            0 => t('No category'),
-        );
-
-        $categories = $this->db->table(self::TABLE)
-                               ->eq('project_id', $project_id)
-                               ->asc('name')
-                               ->findAll();
-
-        foreach ($categories as $category) {
-            $listing[$category['id']] = $category['name'];
-            $descriptions[$category['id']] = $category['description'];
-        }
-
-        return array(
-            $listing,
-            $descriptions,
-        );
     }
 
     /**
@@ -160,7 +125,6 @@ class Category extends Base
         $categories = explode(',', $this->config->get('project_categories'));
 
         foreach ($categories as $category) {
-
             $category = trim($category);
 
             if (! empty($category)) {
@@ -229,14 +193,14 @@ class Category extends Base
      */
     public function duplicate($src_project_id, $dst_project_id)
     {
-        $categories = $this->db->table(self::TABLE)
-                               ->columns('name')
-                               ->eq('project_id', $src_project_id)
-                               ->asc('name')
-                               ->findAll();
+        $categories = $this->db
+            ->table(self::TABLE)
+            ->columns('name')
+            ->eq('project_id', $src_project_id)
+            ->asc('name')
+            ->findAll();
 
         foreach ($categories as $category) {
-
             $category['project_id'] = $dst_project_id;
 
             if (! $this->db->table(self::TABLE)->save($category)) {
@@ -245,64 +209,5 @@ class Category extends Base
         }
 
         return true;
-    }
-
-    /**
-     * Validate category creation
-     *
-     * @access public
-     * @param  array   $values           Form values
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validateCreation(array $values)
-    {
-        $rules = array(
-            new Validators\Required('project_id', t('The project id is required')),
-            new Validators\Required('name', t('The name is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonValidationRules()));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
-    }
-
-    /**
-     * Validate category modification
-     *
-     * @access public
-     * @param  array   $values           Form values
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validateModification(array $values)
-    {
-        $rules = array(
-            new Validators\Required('id', t('The id is required')),
-            new Validators\Required('name', t('The name is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonValidationRules()));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
-    }
-
-    /**
-     * Common validation rules
-     *
-     * @access private
-     * @return array
-     */
-    private function commonValidationRules()
-    {
-        return array(
-            new Validators\Integer('id', t('The id must be an integer')),
-            new Validators\Integer('project_id', t('The project id must be an integer')),
-            new Validators\MaxLength('name', t('The maximum length is %d characters', 50), 50)
-        );
     }
 }

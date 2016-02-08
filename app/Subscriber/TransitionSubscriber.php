@@ -1,22 +1,24 @@
 <?php
 
-namespace Subscriber;
+namespace Kanboard\Subscriber;
 
-use Event\TaskEvent;
-use Model\Task;
+use Kanboard\Event\TaskEvent;
+use Kanboard\Model\Task;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
-class TransitionSubscriber extends Base implements EventSubscriberInterface
+class TransitionSubscriber extends BaseSubscriber implements EventSubscriberInterface
 {
     public static function getSubscribedEvents()
     {
         return array(
-            Task::EVENT_MOVE_COLUMN => array('execute', 0),
+            Task::EVENT_MOVE_COLUMN => 'execute',
         );
     }
 
     public function execute(TaskEvent $event)
     {
+        $this->logger->debug('Subscriber executed: '.__METHOD__);
+
         $user_id = $this->userSession->getId();
 
         if (! empty($user_id)) {
